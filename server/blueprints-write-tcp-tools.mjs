@@ -14,6 +14,7 @@
 // tools.yaml (`blueprints-write:` toolset), ConnectionManager.send dispatch.
 
 import { z } from 'zod';
+import { graphActionAssetPath, holdTriggerWiring } from './graph-action-session.mjs';
 
 // ── Common Zod shapes ──────────────────────────────────────────
 
@@ -25,7 +26,7 @@ const AssignmentLiteralValue = z.union([z.number(), z.boolean(), z.string(), Vec
 const VariableAssignment = z.discriminatedUnion('kind', [
   z.object({
     kind: z.literal('literal'),
-    value: AssignmentLiteralValue.describe('Literal value for the target variable pin. Supports Number, Boolean, String, and Vector [x,y,z].'),
+    value: AssignmentLiteralValue.describe('Number, Boolean, String, or Vector [x,y,z]. Supply JSON numbers for numeric variables. Integer assignments use Unreal rounding and reject results outside int32.'),
   }),
   z.object({
     kind: z.literal('variable'),
@@ -199,20 +200,20 @@ export const BLUEPRINTS_WRITE_SCHEMAS = {
   },
 
   add_function_node: {
-    description: 'Add function call node to a Blueprint graph. Supports graph_name, target class, default pin values, and returns pin metadata. Use KismetMathLibrary/GameplayStatics/etc. for math, vector, comparison, and timer calls.',
+    description: 'Add function call node to a Blueprint graph. Resolves the supplied owner or the Blueprint class when omitted. Returns the reflected function path and pin metadata. Use KismetMathLibrary/GameplayStatics/etc. for math, vector, comparison, and timer calls.',
     schema: {
       blueprint_name: z.string().describe('Blueprint asset name'),
       function_name: z.string().describe('Function name to call'),
       target: z.string().optional().describe('Target class (e.g. GameplayStatics, KismetMathLibrary). Omit to search BP\'s own class.'),
       graph_name: GraphNameOptional,
       node_position: Vec2Optional,
-      params: z.record(z.any()).optional().describe('Default values for function input pins'),
+      params: z.record(z.any()).optional().describe('Input pin literals by name. Unknown inputs or invalid defaults reject the edit.'),
     },
     isReadOp: false,
   },
 
   add_function_graph: {
-    description: 'Create a Blueprint function graph and return the generated FunctionEntry node with pin metadata. Idempotent by graph/function name.',
+    description: 'Create a Blueprint function graph and return the generated FunctionEntry node with pin metadata. Reuses a matching function with one entry. A name collision with another graph kind rejects the edit.',
     schema: {
       blueprint_name: z.string().describe('Blueprint asset name'),
       function_name: z.string().describe('Function graph name to create'),
@@ -232,13 +233,14 @@ export const BLUEPRINTS_WRITE_SCHEMAS = {
   },
 
   add_variable_set: {
-    description: 'Add member variable set node to a target Blueprint graph. Returns pin metadata.',
+    description: 'Add a setter for a member variable. To set Interacting true, pass params: { Interacting: true }. Use graph_name to choose the graph. Returns the created input pins and their defaults.',
+    unknownArgumentMessage: 'Unknown setter argument. Choose the graph with graph_name and put the literal in params keyed by variable_name, for example params: { Interacting: true }.',
     schema: {
       blueprint_name: z.string().describe('Blueprint asset name'),
       variable_name: z.string().describe('Member variable name'),
       graph_name: GraphNameOptional,
       node_position: Vec2Optional,
-      params: z.record(z.any()).optional().describe('Default values for input pins, keyed by pin name'),
+      params: z.record(z.any()).optional().describe('Input pin literals by name. Unknown inputs or invalid defaults reject the edit.'),
     },
     isReadOp: false,
   },
@@ -258,6 +260,7 @@ export const BLUEPRINTS_WRITE_SCHEMAS = {
 
   add_variable_assignment: {
     description: 'Add an ergonomic Blueprint variable assignment in a target graph. Supports target_variable = literal and target_variable = source_variable, optional exec wiring, node/pin/link metadata, and requires_compile.',
+    unknownArgumentMessage: 'Unknown assignment argument. Choose the graph with graph_name and supply assignment as {kind:"literal", value:...} or {kind:"variable", source_variable:...}.',
     schema: {
       blueprint_name: z.string().describe('Blueprint asset name'),
       target_variable: z.string().describe('Member variable written by the assignment set node'),
@@ -459,6 +462,18 @@ export const BLUEPRINTS_WRITE_SCHEMAS = {
     isReadOp: false,
   },
 
+  place_graph_action: {
+    description: `Place the action selected by find_graph_actions in its original graph. An exact input event is reused. Before placing a Sequence Player, call find_graph_actions with the selected action's exact source_asset_path ("" for an empty Sequence Player) and record the GUIDs in placed_nodes. Each placement adds an instance. After a lost reply repeat the lookup. Retry only if comparing the GUIDs confirms the requested node is missing. ${holdTriggerWiring}`,
+    schema: {
+      asset_path: graphActionAssetPath.describe('Target Blueprint package path used for discovery'),
+      graph_guid: stateGraphTarget.graph_guid.describe('Resolved graph_guid from discovery'),
+      expected_revision: stateGraphTarget.expected_revision.describe('Current topology_revision returned by find_graph_actions'),
+      node_position: stateGraphTarget.node_position.describe('Integer graph coordinates [x, y]'),
+      action_id: z.string().min(1).describe('Opaque action ID returned by find_graph_actions for this attachment, editor and graph'),
+    },
+    isReadOp: false,
+  },
+
   connect_nodes: {
     description: 'Connect compatible Blueprint pins. Replace an occupied input only with the current topology revision and all three pin IDs.',
     schema: {
@@ -471,23 +486,25 @@ export const BLUEPRINTS_WRITE_SCHEMAS = {
       target_pin_id: z.string().optional().describe('Expected target pin GUID'),
       replace_source_pin_id: z.string().optional().describe('Current upstream pin GUID to displace'),
       expected_revision: z.string().optional().describe('topology_revision from show_pin_links or get_anim_graph'),
-      graph_guid: z.string().min(1).optional().describe('Stable graph identity, including nested animation state graphs'),
+      graph_guid: z.string().min(1).optional().describe('Target pawn EventGraph or animation graph GUID, including nested state graphs. A supplied graph name must match.'),
       graph_name: GraphNameOptional,
     },
     isReadOp: false,
   },
 
   show_pin_links: {
-    description: 'Read link identities from a named Blueprint graph pin. Returns source/target node and pin metadata without mutating the asset.',
+    description: 'Inspect live Blueprint node pins, defaults and link counts. Omit pin to list all pins. Supply pin to read its links. Use this read-only lookup when saved pin data is unavailable.',
     schema: {
       blueprint_name: z.string().describe('Blueprint asset name'),
-      node_id: z.string().describe('Node GUID string'),
-      pin: z.string().describe('Pin name on node'),
+      node_id: z.string().min(1).optional().describe('Engine GUID from the node. Supply either node_id or node_name.'),
+      node_name: z.string().min(1).optional().describe('Exact node object name in graph_name, e.g. K2Node_CallFunction_0. Use if the saved GUID is unavailable.'),
+      pin: z.string().min(1).optional().describe('Pin name. Omit for node identity and all pin names, defaults, IDs and link counts.'),
       direction: z.enum(['input', 'output']).optional().describe('Pin direction. Omit to search both directions.'),
       target_node_id: z.string().optional().describe('Optional linked node GUID filter'),
       target_pin: z.string().optional().describe('Optional linked pin name filter'),
       target_direction: z.enum(['input', 'output']).optional().describe('Optional linked pin direction filter. Omit to infer the opposite direction.'),
       graph_name: GraphNameOptional,
+      graph_guid: z.string().min(1).optional().describe('Current graph GUID. A supplied graph name must match.'),
     },
     isReadOp: true,
   },
@@ -506,6 +523,7 @@ export const BLUEPRINTS_WRITE_SCHEMAS = {
       target_pin: z.string().optional().describe('Optional target pin name for a specific link'),
       target_direction: z.enum(['input', 'output']).optional().describe('Optional target pin direction. Omit to infer the opposite direction.'),
       graph_name: GraphNameOptional,
+      graph_guid: z.string().min(1).optional().describe('Current graph GUID. A supplied graph name must match.'),
       dry_run: z.boolean().optional().default(false)
         .describe('If true, report matching links without disconnecting or compiling. Default false.'),
       compile: z.boolean().optional().default(false)
@@ -556,14 +574,16 @@ export const BLUEPRINTS_WRITE_SCHEMAS = {
  * @param {import('./connection-manager.mjs').ConnectionManager} connectionManager
  * @returns {Promise<object>} — wire response (Bridge envelope, normalized by ConnectionManager)
  */
-export async function executeBlueprintsWriteTool(toolName, args, connectionManager) {
+export async function executeBlueprintsWriteTool(toolName, args, connectionManager, sendGraphAction) {
   const def = BLUEPRINTS_WRITE_SCHEMAS[toolName];
   if (!def) throw new Error(`blueprints-write-tcp-tools: unknown tool "${toolName}"`);
 
   // P0-9 (required-param) / P0-10 (vector shape) — Zod here so bad shapes
   // never hit the wire. The SDK already parses at tools/call, but direct
   // callers (tests, internal reuse) bypass that layer.
-  const validated = z.object(def.schema).parse(args);
+  const schema = z.object(def.schema);
+  const validated = (def.unknownArgumentMessage ? schema.strict(def.unknownArgumentMessage) : schema).parse(args);
+  if (toolName === 'place_graph_action') return sendGraphAction(toolName, validated);
 
   // Wire-type translation: tools.yaml name → C++ type string.
   const typeString = BLUEPRINTS_WRITE_WIRE_MAP[toolName] || toolName;

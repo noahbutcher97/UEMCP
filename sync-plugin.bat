@@ -27,7 +27,8 @@ REM
 REM Flags:
 REM   -y / --yes      auto-confirm overwrite + skip exit pause (scripted use)
 REM   --force-clean   nuke <dest>/Binaries + <dest>/Intermediate regardless of
-REM                   marker comparison; useful for debugging stale-cache states
+REM                   marker comparison and refresh UEMCP.Build.cs so UBT
+REM                   reloads rules already installed with a stale timestamp
 REM   --no-marker     skip marker read/write entirely (escape hatch if marker
 REM                   logic itself is buggy in future)
 REM
@@ -248,6 +249,8 @@ if not exist "!PLUGIN_DEST!" (
 )
 
 set "WRITE_PROBE=!PLUGIN_DEST!\.uemcp-write-probe.tmp"
+REM Successful echo preserves a previous errorlevel from the optional Node/lock checks.
+ver >nul
 > "!WRITE_PROBE!" echo uemcp-write-probe
 if errorlevel 1 (
   echo [ERROR] Cannot write to plugin target: !PLUGIN_DEST!
@@ -257,6 +260,14 @@ if errorlevel 1 (
 del /q "!WRITE_PROBE!" >nul 2>&1
 if errorlevel 1 (
   echo [WARN] Could not remove write probe: !WRITE_PROBE!
+)
+
+REM Compare module rules before removing the old Source tree.
+set "RULES_SNAPSHOT="
+for /f "usebackq delims=" %%S in (`powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "!UEMCP_PATH!\server\sync-module-rules.ps1" -Phase Capture -SourceDir "!PLUGIN_SRC!" -DestinationDir "!PLUGIN_DEST!"`) do set "RULES_SNAPSHOT=%%S"
+if not defined RULES_SNAPSHOT (
+  echo [ERROR] Cannot inspect module rules. Existing plugin preserved.
+  set "EXIT_CODE=2" & goto :end
 )
 
 if "!OVERWRITE_EXISTING!"=="1" (
@@ -321,6 +332,7 @@ REM would split the argument. Run from %TEMP% and pass a relative name.
 pushd "%TEMP%"
 > uemcp-sync-exclude.txt echo \Binaries\
 >> uemcp-sync-exclude.txt echo \Intermediate\
+>> uemcp-sync-exclude.txt echo \Source\UEMCP\UEMCP.Build.cs
 
 echo Copying plugin source (excluding Binaries\, Intermediate\)...
 xcopy /E /I /Y /Q /EXCLUDE:uemcp-sync-exclude.txt "!PLUGIN_SRC!" "!PLUGIN_DEST!" >nul
@@ -332,6 +344,9 @@ if not "!XCOPY_EXIT!"=="0" (
   echo [ERROR] xcopy failed with exit code !XCOPY_EXIT!.
   set "EXIT_CODE=2" & goto :end
 )
+
+powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "!UEMCP_PATH!\server\sync-module-rules.ps1" -Phase Install -SourceDir "!PLUGIN_SRC!" -DestinationDir "!PLUGIN_DEST!" -Snapshot "!RULES_SNAPSHOT!" -ForceClean !FORCE_CLEAN!
+if errorlevel 1 (set "EXIT_CODE=2" & goto :end)
 
 REM --- Write deploy marker post-sync (W-L / D138) ---
 REM Records manifest version + uplugin Version + commit SHAs at

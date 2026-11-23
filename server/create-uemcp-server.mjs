@@ -29,6 +29,7 @@ import {
   MUTATING_DISPATCHER,
   READ_DISPATCHER,
   ToolDispatchRegistry,
+  dispatcherFor,
 } from './tool-dispatch.mjs';
 import { listEditorProcesses } from './editor-processes.mjs';
 import { clampWaitTimeout, createEditorProbe, readinessHint, waitForEditorReady } from './editor-readiness.mjs';
@@ -60,6 +61,7 @@ import {
   executeWidgetsTool,
 } from './widgets-tcp-tools.mjs';
 import { getRcToolDefs, executeRcTool } from './rc-tools.mjs';
+import { createGraphActionSender } from './graph-action-session.mjs';
 import { SERVER_INSTRUCTIONS, TOOLSET_TIPS } from './server-guidance.mjs';
 import {
   initMenhanceTools,
@@ -280,6 +282,7 @@ function buildOfflineSchemaShape(def) {
 }
 
 function buildTcpSchemaShape(def) {
+  if (def.unknownArgumentMessage) return z.object(def.schema).strict(def.unknownArgumentMessage);
   const shape = {};
   for (const [paramName, zodField] of Object.entries(def.schema)) {
     shape[paramName] = zodField;
@@ -320,6 +323,7 @@ function registerToolGroup(server, toolsetManager, projectContext, log, dispatch
             }
           );
         } catch (err) {
+          if (err.graphActionResult) return structuredResult(err.graphActionResult);
           return {
             content: [{ type: 'text', text: `Error in ${name}: ${err.message}` }],
             isError: true,
@@ -700,14 +704,18 @@ export async function createUemcpServer(options = {}) {
         ok: true,
         query,
         resultCount: results.length,
-        results: results.map(r => ({
-          tool: r.toolName,
-          toolset: r.toolsetName,
-          description: r.description,
-          layer: r.layer,
-          score: r.score,
-          ...(projectContext.identity ? {} : { blocked: PROJECT_ERROR_CODES.PROJECT_NOT_ATTACHED }),
-        })),
+        results: results.map(r => {
+          const entry = dispatchRegistry.get(r.toolName);
+          return {
+            tool: r.toolName,
+            toolset: r.toolsetName,
+            description: r.description,
+            layer: r.layer,
+            score: r.score,
+            ...(entry ? { dispatcher: dispatcherFor(entry.requirement) } : {}),
+            ...(projectContext.identity ? {} : { blocked: PROJECT_ERROR_CODES.PROJECT_NOT_ATTACHED }),
+          };
+        }),
         autoEnabled: summary.autoEnabled,
         projectContext: projectContext.snapshot(),
       };
@@ -941,16 +949,35 @@ export async function createUemcpServer(options = {}) {
     server.server.sendToolListChanged();
   });
 
+  // The package reader can work alone. For a comparison, bind the read to
+  // the current TCP endpoint using its own uncached project handshake.
+  async function readLiveBlueprintPins(args, generation) {
+    function requireSameAttachment() {
+      if (generation !== projectContext.generation) throw new Error('Project attachment changed during pin inspection');
+    }
+    const options = { skipCache: true, beforeDispatch: requireSameAttachment };
+    requireSameAttachment();
+    const state = await connectionManager.send('tcp-55558', 'get_editor_state', {}, options);
+    requireSameAttachment();
+    const verified = projectContext.refreshEditorHandshake(state);
+    if (verified.state !== 'verified') {
+      throw Object.assign(new Error(verified.message), { code: verified.code });
+    }
+    return connectionManager.send('tcp-55558', 'show_blueprint_pin_links', args, options);
+  }
+
   function registerDynamicTools() {
+    const sendGraphAction = createGraphActionSender(projectContext, connectionManager);
     registerToolGroup(
       server, toolsetManager, projectContext, log, dispatchRegistry, 'offline', 'offline',
       TOOLS_YAML.toolsets.offline.tools,
       buildOfflineSchemaShape,
-      (name, args) => executeOfflineTool(
-        name,
-        args,
-        projectContext.identity?.projectRoot || connectionManager.getAttachedProjectRoot()
-      )
+      (name, args) => {
+        const generation = projectContext.generation;
+        return executeOfflineTool(name, args,
+          projectContext.identity?.projectRoot || connectionManager.getAttachedProjectRoot(),
+          pins => readLiveBlueprintPins(pins, generation));
+      }
     );
 
     registerToolGroup(
@@ -964,7 +991,7 @@ export async function createUemcpServer(options = {}) {
       server, toolsetManager, projectContext, log, dispatchRegistry, 'blueprints-write', 'blueprints-write',
       getBlueprintsWriteToolDefs(),
       buildTcpSchemaShape,
-      (name, args) => executeBlueprintsWriteTool(name, args, connectionManager)
+      (name, args) => executeBlueprintsWriteTool(name, args, connectionManager, sendGraphAction)
     );
 
     registerToolGroup(
@@ -985,7 +1012,7 @@ export async function createUemcpServer(options = {}) {
       server, toolsetManager, projectContext, log, dispatchRegistry, 'm-enhance', 'm-enhance',
       getMenhanceToolDefs(),
       buildTcpSchemaShape,
-      (name, args) => executeMenhanceTool(name, args, connectionManager)
+      (name, args) => executeMenhanceTool(name, args, connectionManager, sendGraphAction)
     );
 
     const m5ToolsetGroups = [

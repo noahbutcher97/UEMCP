@@ -1062,6 +1062,13 @@ function readScalarPropertyValue(cur, tag, names, opts) {
   }
 }
 
+// Script ranges are relative to the export. Incomplete or zero ranges use
+// the export base for the property reader and everything following its tags.
+function propertyStreamPrefix(exportEntry) {
+  const { scriptSerializationStartOffset: start, scriptSerializationEndOffset: end } = exportEntry;
+  return start > 0 && end > start ? start : 0;
+}
+
 /**
  * Walk the FPropertyTag stream of an export and return a map of property
  * name → decoded value (or `{unsupported, reason, ...}` marker).
@@ -1098,11 +1105,10 @@ export function readExportProperties(buf, exportEntry, names, opts = {}) {
   // range there. Measured on a real project: of 84,113 exports, 2,422 carry a
   // non-zero start and ALL of them decode with these bounds while none decode
   // without.
-  const hasScriptRange = exportEntry.scriptSerializationStartOffset > 0
-    && exportEntry.scriptSerializationEndOffset > exportEntry.scriptSerializationStartOffset;
-  const start = exportEntry.serialOffset + (hasScriptRange ? exportEntry.scriptSerializationStartOffset : 0);
+  const prefix = propertyStreamPrefix(exportEntry);
+  const start = exportEntry.serialOffset + prefix;
   const serialEnd = exportEntry.serialOffset + exportEntry.serialSize;
-  const end = hasScriptRange
+  const end = prefix
     ? Math.min(exportEntry.serialOffset + exportEntry.scriptSerializationEndOffset, serialEnd)
     : serialEnd;
   if (end > buf.length || start + 1 > buf.length) {
@@ -1149,6 +1155,7 @@ export function readTaggedPropertyStream(cur, endOffset, names, opts = {}) {
   const unsupported = [];
   let propertyCount = 0;
   let responseBytes = 0;
+  let nodeGuid = null;
   let truncated = false;
   let terminated = false;
 
@@ -1221,12 +1228,17 @@ export function readTaggedPropertyStream(cur, endOffset, names, opts = {}) {
       unsupported.push({ name: tag.name, ...entry, unsupported: undefined });
     } else {
       properties[tag.name] = tag.arrayIndex > 0 ? { __arrayIndex: tag.arrayIndex, value } : value;
+      // Preserve the raw property value. Blueprint graph identities use FGuid::ToString(Digits).
+      if (tag.name === 'NodeGuid' && tag.typeParams?.[0]?.name === 'Guid' && typeof value === 'string' && /^[a-fA-F0-9]{32}$/.test(value)) {
+        nodeGuid = opts.legacyPropertyTags || (tag.flags & PTAG_BINARY_OR_NATIVE_SER)
+          ? guidBytesToOracleHex(Buffer.from(value, 'hex')) : value.toUpperCase();
+      }
     }
     propertyCount += 1;
     responseBytes += tag.size;
   }
 
-  return { properties, unsupported, propertyCount, truncated, terminated };
+  return { properties, unsupported, propertyCount, truncated, terminated, nodeGuid };
 }
 
 /**
@@ -1446,6 +1458,9 @@ export function isGraphNodeExportClass(className) {
  *     linked_to_raw: [                   // CP3 input — reference-shaped
  *       { owning_node_package_index: int32, pin_id: '32-hex' }
  *     ],
+ *     sub_pins_raw: [reference],         // children of a split pin
+ *     parent_pin_raw: reference | null,   // parent of a split child
+ *     default_is_ignored: bool,           // BitField bit 3
  *     bOrphanedPin: bool,                // BitField bit 5; oracle drops these at load
  *     malformed: bool                    // true → byte stream ran out / unknown FText history
  *   }
@@ -1472,15 +1487,16 @@ export function isGraphNodeExportClass(className) {
  */
 export function parsePinBlock(buf, exportEntry, names, opts = {}) {
   const tagResult = readExportProperties(buf, exportEntry, names, opts);
-  const postTagOffset = exportEntry.serialOffset + tagResult.bytesConsumed;
-  const nodeGuid = extractNodeGuid(tagResult.properties);
+  const postTagOffset = exportEntry.serialOffset + propertyStreamPrefix(exportEntry) + tagResult.bytesConsumed;
+  const exportEnd = exportEntry.serialOffset + exportEntry.serialSize;
+  const nodeGuid = tagResult.nodeGuid ?? null;
 
-  if (postTagOffset + 8 > buf.length) {
+  if (!tagResult.terminated || postTagOffset + 8 > Math.min(exportEnd, buf.length)) {
     return {
       postTagOffset, sentinel: null, pinBlockOffset: postTagOffset,
       arrayCount: 0, pins: [], nodeGuid,
       tagBytesConsumed: tagResult.bytesConsumed,
-      bytesConsumed: tagResult.bytesConsumed,
+      bytesConsumed: postTagOffset - exportEntry.serialOffset,
       malformed: true,
     };
   }
@@ -1501,7 +1517,6 @@ export function parsePinBlock(buf, exportEntry, names, opts = {}) {
   // Walk pin bodies. Cursor starts AFTER the int32 PinCount.
   const cur = new Cursor(buf);
   cur.seek(pinBlockOffset + 4);
-  const exportEnd = exportEntry.serialOffset + exportEntry.serialSize;
   const pins = [];
   let blockMalformed = false;
 
@@ -1545,6 +1560,9 @@ export function parsePinBlock(buf, exportEntry, names, opts = {}) {
  *   pin_id: string | null,
  *   direction: 'EGPD_Input' | 'EGPD_Output' | null,
  *   linked_to_raw: Array<{ owning_node_package_index: number, pin_id: string }>,
+ *   sub_pins_raw?: Array<{ owning_node_package_index: number, pin_id: string }>,
+ *   parent_pin_raw?: { owning_node_package_index: number, pin_id: string } | null,
+ *   default_is_ignored?: boolean,
  *   default_value?: string,
  *   autogenerated_default_value?: string,
  *   default_object?: object,
@@ -1605,13 +1623,9 @@ function readPinBody(cur, names, exportEnd, opts = {}) {
   const defaultTextValue = readFText(cur);
   // SerializePinArray LinkedTo (resolveType=LinkedTo) — capture for CP3.
   const linked_to_raw = readPinReferenceArray(cur);
-  // SerializePinArray SubPins (resolveType=SubPins) — discard per Oracle-A
-  // README §Edge cases #3 (SubPins not emitted in oracle).
-  consumePinReferenceArray(cur);
-  // SerializePin ParentPin (resolveType=ParentPin) — single ref.
-  consumePinReferenceSingle(cur);
-  // SerializePin ReferencePassThroughConnection — single ref.
-  consumePinReferenceSingle(cur);
+  const sub_pins_raw = readPinReferenceArray(cur);
+  const parent_pin_raw = readPinReferenceSingle(cur);
+  readPinReferenceSingle(cur); // ReferencePassThroughConnection
   // FGuid PersistentGuid (16 bytes) — only when !IsFilterEditorOnly, which is
   // always true for editor uassets. UE5 .uasset always has it.
   cur.skip(16);
@@ -1623,8 +1637,9 @@ function readPinBody(cur, names, exportEnd, opts = {}) {
   // never sees them. Filter at edge-emission to match Oracle.
   const bitField = cur.readUInt32();
   const bOrphanedPin = (bitField & (1 << 5)) !== 0;
+  const default_is_ignored = (bitField & (1 << 3)) !== 0;
 
-  const out = { pin_id, name: pin_name, direction, linked_to_raw, bOrphanedPin };
+  const out = { pin_id, name: pin_name, direction, linked_to_raw, sub_pins_raw, parent_pin_raw, default_is_ignored, bOrphanedPin };
   if (defaultValue !== '') out.default_value = defaultValue;
   if (autogeneratedDefaultValue !== '') out.autogenerated_default_value = autogeneratedDefaultValue;
   if (defaultObject) out.default_object = defaultObject;
@@ -1638,7 +1653,7 @@ function readPinBody(cur, names, exportEnd, opts = {}) {
  * @param {Buffer} bytes
  * @returns {string}
  */
-function guidBytesToOracleHex(bytes) {
+export function guidBytesToOracleHex(bytes) {
   // FGuid stores 4 little-endian uint32s. ToString(Digits) prints them as
   // 8-hex BE per uint32. So read each uint32 LE and emit as %08X.
   let out = '';
@@ -1806,62 +1821,18 @@ function readPinReferenceArray(cur) {
   const count = cur.readInt32();
   const refs = [];
   for (let i = 0; i < count; i++) {
-    const bNullPtr = cur.readInt32() !== 0;
-    if (bNullPtr) continue; // dangling ref — drop silently per Oracle behavior
-    const owning = cur.readInt32();
-    const pid = guidBytesToOracleHex(cur.readBytes(16));
-    refs.push({ owning_node_package_index: owning, pin_id: pid });
+    const ref = readPinReferenceSingle(cur);
+    if (ref) refs.push(ref);
   }
   return refs;
 }
 
-/**
- * Consume a SerializePinArray result without storing.
- * @param {Cursor} cur
- */
-function consumePinReferenceArray(cur) {
-  const count = cur.readInt32();
-  for (let i = 0; i < count; i++) {
-    const bNullPtr = cur.readInt32() !== 0;
-    if (bNullPtr) continue;
-    cur.skip(4 + 16);
-  }
-}
-
-/**
- * Consume a single SerializePin reference (ParentPin /
- * ReferencePassThroughConnection).
- * @param {Cursor} cur
- */
-function consumePinReferenceSingle(cur) {
-  const bNullPtr = cur.readInt32() !== 0;
-  if (bNullPtr) return;
-  cur.skip(4 + 16);
-}
-
-/**
- * Extract the NodeGuid FGuid from the tagged-property result as an
- * Oracle-A-compatible hex string (32 upper-hex chars, no dashes).
- *
- * The tagged-fallback FGuid handler emits the raw 16 bytes as a little-endian
- * hex string via Buffer.toString('hex'). Oracle-A emits via UE's
- * FGuid::ToString(EGuidFormats::Digits) which prints the 4 uint32 fields
- * A-B-C-D each as big-endian hex. Convert by reversing byte pair order
- * within each 8-hex-char group.
- *
- * @param {Record<string, any>} properties
- * @returns {string | null}  32 upper-hex chars, or null if NodeGuid absent/malformed
- */
-function extractNodeGuid(properties) {
-  const v = properties?.NodeGuid;
-  if (typeof v !== 'string' || v.length !== 32) return null;
-  const groups = [];
-  for (let g = 0; g < 4; g++) {
-    const chunk = v.substr(g * 8, 8);
-    const beHex = chunk.match(/../g).reverse().join('');
-    groups.push(beHex.toUpperCase());
-  }
-  return groups.join('');
+function readPinReferenceSingle(cur) {
+  if (cur.readInt32() !== 0) return null;
+  return {
+    owning_node_package_index: cur.readInt32(),
+    pin_id: guidBytesToOracleHex(cur.readBytes(16)),
+  };
 }
 
 /**

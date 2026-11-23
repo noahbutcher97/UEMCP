@@ -43,6 +43,7 @@
 #include "Dom/JsonValue.h"
 #include "Misc/AutomationTest.h"
 #include "Misc/Guid.h"
+#include "Misc/DefaultValueHelper.h"
 
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "EdGraph/EdGraph.h"
@@ -60,9 +61,11 @@
 #include "K2Node_VariableSet.h"
 #include "Kismet/BlueprintFunctionLibrary.h"
 #include "Kismet/KismetSystemLibrary.h"
+#include "Kismet/KismetTextLibrary.h"
 #include "Kismet2/BlueprintEditorUtils.h"
 #include "Kismet2/KismetEditorUtilities.h"
 #include "UObject/Package.h"
+#include "UObject/UObjectHash.h"
 #include "UObject/UObjectGlobals.h"
 
 #include "MCPCommandRegistry.h"
@@ -278,18 +281,7 @@ namespace UEMCP::Blueprint::Tests
 	/** The fixture's event graph. CreateBlueprint gives an Actor Blueprint one. */
 	UEdGraph* FixtureEventGraph(UBlueprint* Blueprint)
 	{
-		if (!Blueprint)
-		{
-			return nullptr;
-		}
-		for (UEdGraph* Graph : Blueprint->UbergraphPages)
-		{
-			if (Graph && Graph->GetName().Contains(TEXT("EventGraph")))
-			{
-				return Graph;
-			}
-		}
-		return nullptr;
+		return Blueprint ? FBlueprintEditorUtils::FindEventGraph(Blueprint) : nullptr;
 	}
 
 	/**
@@ -3178,6 +3170,92 @@ bool FStateNamingIsolation::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGraphNodePinInspection, "UEMCP.BlueprintHandlers.GraphNodePinInspection",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FGraphNodePinInspection::RunTest(const FString& Parameters)
+{
+	using namespace UEMCP::Blueprint::Tests;
+	FFixtureBlueprint Fixture = CreateFixtureBlueprint();
+	if (!TestNotNull(TEXT("Actor Blueprint"), Fixture.Blueprint)) return false;
+	ON_SCOPE_EXIT { DestroyFixtureBlueprint(Fixture); };
+	auto* Graph = FixtureEventGraph(Fixture.Blueprint);
+	if (!TestNotNull(TEXT("EventGraph"), Graph)) return false;
+	// Construct the read fixture through Unreal itself. A user-facing placement
+	// transaction would retain the disposable graph in the editor's undo history.
+	UFunction* Function = AActor::StaticClass()->FindFunctionByName(GET_FUNCTION_NAME_CHECKED(AActor, SetActorScale3D));
+	if (!TestNotNull(TEXT("Scale function"), Function)) return false;
+	FGraphNodeCreator<UK2Node_CallFunction> Creator(*Graph);
+	UK2Node_CallFunction* Node = Creator.CreateNode();
+	Node->SetFromFunction(Function);
+	Creator.Finalize();
+	const FString Id = Node->NodeGuid.ToString();
+
+	UFunction* TextFunction = UKismetTextLibrary::StaticClass()->FindFunctionByName(GET_FUNCTION_NAME_CHECKED(UKismetTextLibrary, Conv_TextToString));
+	if (!TestNotNull(TEXT("Text conversion function"), TextFunction)) return false;
+	FGraphNodeCreator<UK2Node_CallFunction> TextCreator(*Graph);
+	UK2Node_CallFunction* TextNode = TextCreator.CreateNode();
+	TextNode->SetFromFunction(TextFunction);
+	TextCreator.Finalize();
+	auto* TextPin = TextNode->FindPin(TEXT("InText"), EGPD_Input);
+	if (!TestNotNull(TEXT("Text input"), TextPin)) return false;
+	TextPin->DefaultTextValue = NSLOCTEXT("UEMCPTests", "PinInspectorText", "Visible text default");
+	TextPin->bOrphanedPin = true;
+
+	auto Read = MakeShared<FJsonObject>();
+	Read->SetStringField(TEXT("blueprint_name"), Fixture.PackagePath);
+	Read->SetStringField(TEXT("graph_name"), Graph->GetName());
+	Read->SetStringField(TEXT("node_name"), Node->GetName());
+	auto Inspect = [&]() { return Dispatch(TEXT("show_blueprint_pin_links"), Read); };
+	Fixture.Blueprint->GetOutermost()->SetDirtyFlag(false);
+	const int32 Before = Graph->Nodes.Num();
+	auto Result = ResultOf(Inspect());
+	TestEqual(TEXT("Live node identity"), StringFieldOr(Result, TEXT("node_id")), Id);
+	TestEqual(TEXT("Live object name"), StringFieldOr(Result, TEXT("node_name")), Node->GetName());
+	Read->SetStringField(TEXT("node_name"), Node->GetName().ToLower());
+	TestEqual(TEXT("Case-only object name mismatch"), ErrorCodeOf(Inspect()), FString(TEXT("NODE_NOT_FOUND")));
+	auto Scale = FindEntryByField(Result, TEXT("pins"), TEXT("name"), TEXT("NewScale3D"));
+	auto* ScalePin = Node->FindPin(TEXT("NewScale3D"), EGPD_Input);
+	if (!TestNotNull(TEXT("Actual scale pin"), ScalePin)) return false;
+	TestEqual(TEXT("Current scale pin default"), StringFieldOr(Scale, TEXT("default")), ScalePin->DefaultValue);
+	TestEqual(TEXT("Current scale pin identity"), StringFieldOr(Scale, TEXT("pin_id")), ScalePin->PinId.ToString());
+	bool bOrphaned = true;
+	TestTrue(TEXT("Current argument identified as an active pin"),
+		Scale.IsValid() && Scale->TryGetBoolField(TEXT("orphaned"), bOrphaned) && !bOrphaned);
+
+	Read->SetStringField(TEXT("node_name"), TextNode->GetName());
+	const auto TextEntry = FindEntryByField(ResultOf(Inspect()), TEXT("pins"), TEXT("name"), TEXT("InText"));
+	TestTrue(TEXT("Raw inspection retains and identifies an orphaned input"),
+		TextEntry.IsValid() && TextEntry->TryGetBoolField(TEXT("orphaned"), bOrphaned) && bOrphaned);
+	TestEqual(TEXT("Text channel from Unreal pin"), StringFieldOr(TextEntry, TEXT("default_text_value")), TextPin->DefaultTextValue.ToString());
+	TestEqual(TEXT("Separate string literal preserved"), StringFieldOr(TextEntry, TEXT("default")), TextPin->DefaultValue);
+	Read->SetStringField(TEXT("node_name"), Node->GetName());
+
+	Read->SetStringField(TEXT("node_id"), Id);
+	TestEqual(TEXT("Conflicting selectors refused"), ErrorCodeOf(Inspect()), FString(TEXT("INVALID_NODE_SELECTOR")));
+	Read->RemoveField(TEXT("node_name"));
+	Read->SetStringField(TEXT("direction"), TEXT("input"));
+	TestEqual(TEXT("Link filter requires pin"), ErrorCodeOf(Inspect()), FString(TEXT("MISSING_PARAMS")));
+	Read->SetStringField(TEXT("pin"), TEXT("NewScale3D"));
+	TestEqual(TEXT("Named pin lookup still works"), StringFieldOr(ResultOf(Inspect()), TEXT("pin")), FString(TEXT("NewScale3D")));
+	Read->RemoveField(TEXT("node_id"));
+	Read->SetStringField(TEXT("node_name"), Node->GetName());
+	Read->RemoveField(TEXT("graph_name"));
+	TestEqual(TEXT("Object name requires graph scope"), ErrorCodeOf(Inspect()), FString(TEXT("MISSING_PARAMS")));
+	Read->RemoveField(TEXT("node_name"));
+	Read->SetStringField(TEXT("node_id"), Id);
+	{
+		TGuardValue<decltype(Fixture.Blueprint->UbergraphPages)> RestorePages(Fixture.Blueprint->UbergraphPages, decltype(Fixture.Blueprint->UbergraphPages)());
+		auto* Decoy = NewObject<UEdGraph>(Fixture.Blueprint, TEXT("BackupEventGraph"));
+		Fixture.Blueprint->UbergraphPages.Add(Decoy);
+		TestEqual(TEXT("Missing EventGraph cannot select a substring match"), ErrorCodeOf(Inspect()), FString(TEXT("NO_GRAPH")));
+		TestEqual(TEXT("No graph created by inspection"), Fixture.Blueprint->UbergraphPages.Num(), 1);
+	}
+	TestEqual(TEXT("Inspection preserves node count"), Graph->Nodes.Num(), Before);
+	TestFalse(TEXT("Inspection leaves package clean"), Fixture.Blueprint->GetOutermost()->IsDirty());
+	return true;
+}
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FFunctionConnectionUndo, "UEMCP.BlueprintHandlers.FunctionConnectionUndo",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
@@ -3187,6 +3265,11 @@ bool FFunctionConnectionUndo::RunTest(const FString& Parameters)
 	FFixtureBlueprint Fixture = CreateFixtureBlueprint();
 	if (!TestNotNull(TEXT("Actor Blueprint"), Fixture.Blueprint)) return false;
 	ON_SCOPE_EXIT { DestroyFixtureBlueprint(Fixture); };
+	if (!TestTrue(TEXT("Idle transaction system"), GEditor && GEditor->Trans && !GEditor->Trans->IsActive() && !GUndo)) return false;
+	TStrongObjectPtr<UTransactor> Previous(GEditor->Trans.Get());
+	TStrongObjectPtr<UTransBuffer> History(NewObject<UTransBuffer>());
+	History->Initialize(8 * 1024 * 1024);
+	TGuardValue<decltype(GEditor->Trans)> UseHistory(GEditor->Trans, History.Get());
 	auto* Graph = FixtureEventGraph(Fixture.Blueprint);
 	if (!TestNotNull(TEXT("EventGraph"), Graph)) return false;
 	auto Params = MakeShared<FJsonObject>();
@@ -3202,11 +3285,7 @@ bool FFunctionConnectionUndo::RunTest(const FString& Parameters)
 	auto* To = Place();
 	if (!TestNotNull(TEXT("Function output node"), From) || !TestNotNull(TEXT("Function input node"), To)) return false;
 	TestTrue(TEXT("Placed calls participate in editor transactions"), From->HasAnyFlags(RF_Transactional) && To->HasAnyFlags(RF_Transactional));
-	if (!TestTrue(TEXT("Idle transaction system"), GEditor && GEditor->Trans && !GEditor->Trans->IsActive() && !GUndo)) return false;
-	TStrongObjectPtr<UTransactor> Previous(GEditor->Trans.Get());
-	TStrongObjectPtr<UTransBuffer> History(NewObject<UTransBuffer>());
-	History->Initialize(8 * 1024 * 1024);
-	TGuardValue<decltype(GEditor->Trans)> UseHistory(GEditor->Trans, History.Get());
+	History->Reset(FText::FromString(TEXT("Fixture setup complete")));
 	auto Connect = MakeShared<FJsonObject>();
 	Connect->SetStringField(TEXT("blueprint_name"), Fixture.PackagePath);
 	Connect->SetStringField(TEXT("source_node_id"), From->NodeGuid.ToString());
@@ -3245,6 +3324,491 @@ bool FFunctionConnectionUndo::RunTest(const FString& Parameters)
 		To->FindPinChecked(TEXT("A"))->LinkedTo.IsEmpty());
 	TestTrue(TEXT("Undo legacy disconnect"), History->Undo());
 	TestTrue(TEXT("Undo restores both legacy links"), Connected());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FUEMCPWriterPinDefaultsTest, "UEMCP.BlueprintHandlers.WriterPinDefaults",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FUEMCPWriterPinDefaultsTest::RunTest(const FString&)
+{
+	using namespace UEMCP::Blueprint::Tests;
+	FFixtureBlueprint Fixture = CreateFixtureBlueprint();
+	ON_SCOPE_EXIT { DestroyFixtureBlueprint(Fixture); };
+	if (!TestTrue(TEXT("Idle transaction system"), GEditor && GEditor->Trans && !GEditor->Trans->IsActive() && !GUndo)) return false;
+	TStrongObjectPtr<UTransactor> Previous(GEditor->Trans.Get());
+	TStrongObjectPtr<UTransBuffer> History(NewObject<UTransBuffer>());
+	History->Initialize(8 * 1024 * 1024);
+	TGuardValue<decltype(GEditor->Trans)> UseHistory(GEditor->Trans, History.Get());
+	if (!TestNotNull(TEXT("fixture"), Fixture.Blueprint)) return false;
+	AddFixtureVariable(Fixture.Blueprint, TEXT("Amount"), UEdGraphSchema_K2::PC_Int);
+	AddFixtureVariable(Fixture.Blueprint, TEXT("Single"), UEdGraphSchema_K2::PC_Real, UEdGraphSchema_K2::PC_Float);
+	AddFixtureVariable(Fixture.Blueprint, TEXT("Big"), UEdGraphSchema_K2::PC_Int64);
+	AddFixtureVariable(Fixture.Blueprint, TEXT("Octet"), UEdGraphSchema_K2::PC_Byte);
+	AddFixtureVariable(Fixture.Blueprint, TEXT("Wide"), UEdGraphSchema_K2::PC_Real, UEdGraphSchema_K2::PC_Double);
+	UEdGraph* Graph = FixtureEventGraph(Fixture.Blueprint);
+	if (!TestNotNull(TEXT("event graph"), Graph)) return false;
+	TSharedPtr<FJsonObject> Params = MakeShared<FJsonObject>();
+	Params->SetStringField(TEXT("blueprint_name"), Fixture.PackagePath);
+	Params->SetStringField(TEXT("function_name"), TEXT("SetActorScale3D"));
+	Params->SetStringField(TEXT("variable_name"), TEXT("Amount"));
+	TSharedPtr<FJsonObject> Defaults = MakeShared<FJsonObject>();
+	Params->SetObjectField(TEXT("params"), Defaults);
+
+	const int32 NodeCount = Graph->Nodes.Num();
+	const int32 QueueLength = GEditor->Trans->GetQueueLength();
+	Fixture.Package->SetDirtyFlag(false);
+	const TCHAR* Call = TEXT("add_blueprint_function_node");
+	const TCHAR* Set = TEXT("add_blueprint_variable_set_node");
+	struct FInvalidInteger { const TCHAR* Name; double Value; };
+	for (const FInvalidInteger& Bad : { FInvalidInteger{TEXT("Big"), 2.5}, {TEXT("Big"), 9007199254740992.0},
+		{TEXT("Big"), -9007199254740992.0}, {TEXT("Octet"), 0.5}, {TEXT("Octet"), -1.0}, {TEXT("Octet"), 256.0} })
+	{
+		Params->SetStringField(TEXT("variable_name"), Bad.Name);
+		Defaults->SetNumberField(Bad.Name, Bad.Value);
+		TestEqual(TEXT("Invalid numeric integer pin default"), ErrorCodeOf(Dispatch(Set, Params)), FString(TEXT("INVALID_PIN_DEFAULT")));
+		Defaults->RemoveField(Bad.Name);
+	}
+	Params->SetStringField(TEXT("variable_name"), TEXT("Single"));
+	for (const TCHAR* Invalid : { TEXT("1e39"), TEXT("-1e39"), TEXT("1e-46"), TEXT("1e-9999"),
+		TEXT("3.4028236e38"), TEXT("-3.4028236e38") })
+	{
+		Defaults->SetStringField(TEXT("Single"), Invalid);
+		TestEqual(Invalid, ErrorCodeOf(Dispatch(Set, Params)), FString(TEXT("INVALID_PIN_DEFAULT")));
+	}
+	Defaults->RemoveField(TEXT("Single"));
+	Params->SetStringField(TEXT("variable_name"), TEXT("Amount"));
+	Defaults->SetNumberField(TEXT("Amoun"), 27);
+	TestEqual(TEXT("setter rejects typo"), ErrorCodeOf(Dispatch(Set, Params)), FString(TEXT("PIN_NOT_FOUND")));
+	Defaults->SetNumberField(TEXT("Amount"), 32);
+	TestEqual(TEXT("one valid literal cannot mask an unknown input"), ErrorCodeOf(Dispatch(Set, Params)), FString(TEXT("PIN_NOT_FOUND")));
+	Defaults->RemoveField(TEXT("Amount"));
+	Defaults->RemoveField(TEXT("Amoun"));
+	for (const TCHAR* Invalid : { TEXT("2147483648"), TEXT("-2147483649"), TEXT("0x100000000"), TEXT("32no") })
+	{
+		Defaults->SetStringField(TEXT("Amount"), Invalid);
+		TestEqual(Invalid, ErrorCodeOf(Dispatch(Set, Params)), FString(TEXT("INVALID_PIN_DEFAULT")));
+	}
+	Defaults->RemoveField(TEXT("Amount"));
+	Defaults->SetStringField(TEXT("NewScale3"), TEXT("2,3,4"));
+	TestEqual(TEXT("function rejects typo"), ErrorCodeOf(Dispatch(Call, Params)), FString(TEXT("PIN_NOT_FOUND")));
+	Defaults->RemoveField(TEXT("NewScale3"));
+	Defaults->SetArrayField(TEXT("NewScale3D"), {MakeShared<FJsonValueNumber>(2), MakeShared<FJsonValueNumber>(3)});
+	TestEqual(TEXT("function rejects malformed vector"), ErrorCodeOf(Dispatch(Call, Params)), FString(TEXT("INVALID_PIN_DEFAULT")));
+	for (const TCHAR* Invalid : { TEXT("(X=2,Y=garbage,Z=4)"), TEXT("(X=2,Y=3oops,Z=4)"), TEXT("2,1e,4"), TEXT("1,2,3,4") })
+	{
+		Defaults->SetStringField(TEXT("NewScale3D"), Invalid);
+		TestEqual(Invalid, ErrorCodeOf(Dispatch(Call, Params)), FString(TEXT("INVALID_PIN_DEFAULT")));
+	}
+	Defaults->RemoveField(TEXT("NewScale3D"));
+	Params->SetStringField(TEXT("target"), TEXT("MissingUEMCPWriterOwner"));
+	TestEqual(TEXT("explicit missing owner cannot select self"), ErrorCodeOf(Dispatch(Call, Params)), FString(TEXT("TARGET_CLASS_NOT_FOUND")));
+	TestEqual(TEXT("rejections preserve membership"), Graph->Nodes.Num(), NodeCount);
+	TestFalse(TEXT("rejections preserve clean package"), Fixture.Package->IsDirty());
+	TestEqual(TEXT("rejections preserve Undo history"), GEditor->Trans->GetQueueLength(), QueueLength);
+
+	Params->RemoveField(TEXT("target"));
+	for (const TCHAR* Valid : { TEXT("2,3,4"), TEXT("(X=2,Y=3,Z=4)"), TEXT("X=2e0 Y=3.0 Z=+4") })
+	{
+		Defaults->SetStringField(TEXT("NewScale3D"), Valid);
+		const auto ValidResult = ResultOf(Dispatch(Call, Params));
+		auto* ValidNode = FindNodeByGuid(Graph, StringFieldOr(ValidResult, TEXT("node_id")));
+		if (!TestNotNull(Valid, ValidNode)) return false;
+		FVector Observed;
+		const auto* Input = ValidNode->FindPinChecked(TEXT("NewScale3D"), EGPD_Input);
+		TestTrue(Valid, FDefaultValueHelper::ParseVector(Input->DefaultValue, Observed) && Observed.Equals(FVector(2, 3, 4)));
+	}
+	Defaults->SetArrayField(TEXT("NewScale3D"), {MakeShared<FJsonValueNumber>(2), MakeShared<FJsonValueNumber>(3), MakeShared<FJsonValueNumber>(4)});
+	const TSharedPtr<FJsonObject> CallResult = ResultOf(Dispatch(Call, Params));
+	UK2Node_CallFunction* Function = Cast<UK2Node_CallFunction>(FindNodeByGuid(Graph, StringFieldOr(CallResult, TEXT("node_id"))));
+	if (!TestNotNull(TEXT("omitted owner resolves real self member"), Function)) return false;
+	if (!TestNotNull(TEXT("resolved function member"), Function->GetTargetFunction())) return false;
+	TestEqual(TEXT("member identity"), Function->GetTargetFunction()->GetName(), FString(TEXT("SetActorScale3D")));
+	UEdGraphPin* Scale = Function->FindPin(TEXT("NewScale3D"), EGPD_Input);
+	if (!TestNotNull(TEXT("native scale pin"), Scale)) return false;
+	FVector Parsed;
+	TestTrue(TEXT("retains requested vector"), FDefaultValueHelper::ParseVector(Scale->DefaultValue, Parsed) && Parsed.Equals(FVector(2, 3, 4)));
+	Defaults->RemoveField(TEXT("NewScale3D"));
+	Defaults->SetNumberField(TEXT("Amount"), 27);
+	const TSharedPtr<FJsonObject> SetResult = ResultOf(Dispatch(Set, Params));
+	UEdGraphNode* Setter = FindNodeByGuid(Graph, StringFieldOr(SetResult, TEXT("node_id")));
+	if (!TestNotNull(TEXT("valid setter"), Setter)) return false;
+	TestEqual(TEXT("native variable pin literal"), Setter->FindPinChecked(TEXT("Amount"), EGPD_Input)->DefaultValue, FString(TEXT("27")));
+	Defaults->SetStringField(TEXT("Amount"), TEXT("0x10"));
+	const auto HexResult = ResultOf(Dispatch(Set, Params));
+	auto* HexSetter = FindNodeByGuid(Graph, StringFieldOr(HexResult, TEXT("node_id")));
+	if (!TestNotNull(TEXT("hexadecimal integer"), HexSetter)) return false;
+	TestEqual(TEXT("VM receives the decimal integer"), HexSetter->FindPinChecked(TEXT("Amount"), EGPD_Input)->DefaultValue, FString(TEXT("16")));
+	struct FIntegerControl { const TCHAR* Name; TSharedPtr<FJsonValue> Value; const TCHAR* Expected; };
+	const FIntegerControl Integers[] = {
+		{TEXT("Big"), MakeShared<FJsonValueNumber>(27), TEXT("27")},
+		{TEXT("Big"), MakeShared<FJsonValueNumber>(9007199254740991.0), TEXT("9007199254740991")},
+		{TEXT("Big"), MakeShared<FJsonValueNumber>(-9007199254740991.0), TEXT("-9007199254740991")},
+		{TEXT("Big"), MakeShared<FJsonValueString>(TEXT("9223372036854775807")), TEXT("9223372036854775807")},
+		{TEXT("Big"), MakeShared<FJsonValueString>(TEXT("-9223372036854775808")), TEXT("-9223372036854775808")},
+		{TEXT("Octet"), MakeShared<FJsonValueNumber>(0), TEXT("0")},
+		{TEXT("Octet"), MakeShared<FJsonValueNumber>(255), TEXT("255")}
+	};
+	for (const FIntegerControl& Control : Integers)
+	{
+		Params->SetStringField(TEXT("variable_name"), Control.Name);
+		Defaults->Values.Empty();
+		Defaults->SetField(Control.Name, Control.Value);
+		const auto Accepted = ResultOf(Dispatch(Set, Params));
+		const auto* Node = FindNodeByGuid(Graph, StringFieldOr(Accepted, TEXT("node_id")));
+		if (TestNotNull(Control.Expected, Node))
+		{
+			TestEqual(TEXT("Integer pin retains exact decimal text"), Node->FindPinChecked(FName(Control.Name), EGPD_Input)->DefaultValue, FString(Control.Expected));
+		}
+	}
+	struct FRealControl { const TCHAR* Name; const TCHAR* Literal; };
+	const FRealControl Controls[] = { { TEXT("Single"), TEXT("1e-7") }, { TEXT("Wide"), TEXT("1e39") },
+		{ TEXT("Single"), TEXT("3.4028235e38") }, { TEXT("Single"), TEXT("-3.4028235e38") } };
+	for (const FRealControl& Control : Controls)
+	{
+		Params->SetStringField(TEXT("variable_name"), Control.Name);
+		Defaults->Values.Empty();
+		Defaults->SetStringField(Control.Name, Control.Literal);
+		const auto Accepted = ResultOf(Dispatch(Set, Params));
+		const auto* SetterNode = FindNodeByGuid(Graph, StringFieldOr(Accepted, TEXT("node_id")));
+		if (!TestNotNull(Control.Literal, SetterNode)) return false;
+		TestEqual(TEXT("Retains representable real text"),
+			SetterNode->FindPinChecked(FName(Control.Name), EGPD_Input)->DefaultValue, FString(Control.Literal));
+	}
+	auto AssignmentParams = MakeShared<FJsonObject>();
+	AssignmentParams->SetStringField(TEXT("blueprint_name"), Fixture.PackagePath);
+	AssignmentParams->SetStringField(TEXT("target_variable"), TEXT("Amount"));
+	auto Literal = MakeShared<FJsonObject>();
+	Literal->SetStringField(TEXT("kind"), TEXT("literal"));
+	Literal->SetNumberField(TEXT("value"), 2147483648.0);
+	AssignmentParams->SetObjectField(TEXT("assignment"), Literal);
+	const int32 BeforeAssignment = Graph->Nodes.Num();
+	const int32 BeforeUndo = History->GetQueueLength();
+	Fixture.Package->SetDirtyFlag(false);
+	TestEqual(TEXT("refuse overflowing assignment"), ErrorCodeOf(Dispatch(TEXT("add_blueprint_variable_assignment"), AssignmentParams)),
+		FString(TEXT("LITERAL_TYPE_MISMATCH")));
+	TestEqual(TEXT("refusal preserves graph membership"), Graph->Nodes.Num(), BeforeAssignment);
+	TestEqual(TEXT("refusal preserves Undo history"), History->GetQueueLength(), BeforeUndo);
+	TestFalse(TEXT("refusal preserves clean package"), Fixture.Package->IsDirty());
+
+	// A user can reorder the event pages independently of their names.
+	UEdGraph* OtherPage = FBlueprintEditorUtils::CreateNewGraph(Fixture.Blueprint, TEXT("OtherEventGraph"),
+		UEdGraph::StaticClass(), UEdGraphSchema_K2::StaticClass());
+	FBlueprintEditorUtils::AddUbergraphPage(Fixture.Blueprint, OtherPage);
+	Fixture.Blueprint->UbergraphPages.Swap(0, Fixture.Blueprint->UbergraphPages.IndexOfByKey(OtherPage));
+	if (!TestTrue(TEXT("canonical event graph differs from first page"), FBlueprintEditorUtils::FindEventGraph(Fixture.Blueprint) == Graph && Graph != OtherPage)) return false;
+	Params->SetStringField(TEXT("variable_name"), TEXT("Amount"));
+	Defaults->Values.Empty();
+	Defaults->SetNumberField(TEXT("Amount"), 19);
+	const int32 OtherCount = OtherPage->Nodes.Num();
+	for (const bool ExplicitGraph : {false, true})
+	{
+		if (ExplicitGraph) Params->SetStringField(TEXT("graph_name"), TEXT("EventGraph"));
+		const auto Write = ResultOf(Dispatch(Set, Params));
+		TestNotNull(TEXT("setter lands in canonical EventGraph"), FindNodeByGuid(Graph, StringFieldOr(Write, TEXT("node_id"))));
+	}
+	TestEqual(TEXT("similarly named page unchanged"), OtherPage->Nodes.Num(), OtherCount);
+	Params->SetStringField(TEXT("graph_name"), OtherPage->GetName());
+	const auto Named = ResultOf(Dispatch(Set, Params));
+	TestNotNull(TEXT("an explicitly named secondary page remains selectable"),
+		FindNodeByGuid(OtherPage, StringFieldOr(Named, TEXT("node_id"))));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FUEMCPFunctionGraphIdentityTest, "UEMCP.BlueprintHandlers.FunctionGraphIdentity",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FUEMCPFunctionGraphIdentityTest::RunTest(const FString&)
+{
+	using namespace UEMCP::Blueprint::Tests;
+	if (!TestTrue(TEXT("Idle transaction system"), GEditor && GEditor->Trans && !GEditor->Trans->IsActive() && !GUndo)) return false;
+	FFixtureBlueprint Fixture = CreateFixtureBlueprint();
+	ON_SCOPE_EXIT { DestroyFixtureBlueprint(Fixture); };
+	if (!TestNotNull(TEXT("fixture"), Fixture.Blueprint)) return false;
+	TSharedPtr<FJsonObject> Params = MakeShared<FJsonObject>();
+	Params->SetStringField(TEXT("blueprint_name"), Fixture.PackagePath);
+	Params->SetStringField(TEXT("function_name"), TEXT("ReadAmount"));
+	const TCHAR* Command = TEXT("add_blueprint_function_graph");
+	const TSharedPtr<FJsonObject> Created = ResultOf(Dispatch(Command, Params));
+	const FString EntryId = StringFieldOr(Created, TEXT("node_id"));
+	if (!TestFalse(TEXT("created function entry identity"), EntryId.IsEmpty())) return false;
+	const int32 Count = Fixture.Blueprint->FunctionGraphs.Num();
+	const int32 QueueLength = GEditor->Trans->GetQueueLength();
+	Fixture.Package->SetDirtyFlag(false);
+	const TSharedPtr<FJsonObject> Reused = ResultOf(Dispatch(Command, Params));
+	TestEqual(TEXT("reuses exact function entry"), StringFieldOr(Reused, TEXT("node_id")), EntryId);
+	if (!TestTrue(TEXT("reuse result"), Reused.IsValid())) return false;
+	TestFalse(TEXT("idempotent reuse"), Reused->GetBoolField(TEXT("created")));
+	Params->SetStringField(TEXT("function_name"), TEXT("EventGraph"));
+	TestEqual(TEXT("rejects a non-function graph"), ErrorCodeOf(Dispatch(Command, Params)), FString(TEXT("GRAPH_KIND_MISMATCH")));
+	TestEqual(TEXT("no additional graph"), Fixture.Blueprint->FunctionGraphs.Num(), Count);
+	TestFalse(TEXT("package stays clean"), Fixture.Package->IsDirty());
+	TestEqual(TEXT("Undo history stays intact"), GEditor->Trans->GetQueueLength(), QueueLength);
+	UEdGraph* SavedFunction = FindObject<UEdGraph>(Fixture.Blueprint, TEXT("ReadAmount"));
+	if (!TestNotNull(TEXT("created function graph"), SavedFunction)) return false;
+	UEdGraphNode* Entry = FindNodeByGuid(SavedFunction, EntryId);
+	if (!TestNotNull(TEXT("created entry belongs to this graph"), Entry)) return false;
+	SavedFunction->RemoveNode(Entry);
+	Fixture.Package->SetDirtyFlag(false);
+	Params->SetStringField(TEXT("function_name"), TEXT("ReadAmount"));
+	TestEqual(TEXT("refuse reuse of graph missing its entry"), ErrorCodeOf(Dispatch(Command, Params)), FString(TEXT("INVALID_FUNCTION_ENTRY")));
+	TestFalse(TEXT("invalid entry leaves package clean"), Fixture.Package->IsDirty());
+	TestEqual(TEXT("invalid entry leaves the graph in place"), Fixture.Blueprint->FunctionGraphs.Num(), Count);
+	return true;
+}
+
+namespace UEMCP::Blueprint::Tests
+{
+	/** Owns the transactions and the one unsaved package used by the pawn wiring fixture. */
+	struct FScopedPawnFixture
+	{
+		TStrongObjectPtr<UTransactor> EditorHistory{GEditor->Trans.Get()};
+		TStrongObjectPtr<UTransBuffer> History{NewObject<UTransBuffer>()};
+		TGuardValue<decltype(GEditor->Trans)> UseHistory{GEditor->Trans, History.Get()};
+		FFixtureBlueprint Asset;
+
+		FScopedPawnFixture()
+		{
+			History->Initialize(8 * 1024 * 1024);
+			Asset = CreateFixtureBlueprintOfType(APawn::StaticClass(), BPTYPE_Normal);
+		}
+
+		~FScopedPawnFixture()
+		{
+			// Transaction records keep graph objects alive across collection.
+			History->Reset(NSLOCTEXT("UEMCPTests", "PawnFixtureCleanup", "Release pawn fixture transactions"));
+			if (Asset.Blueprint)
+			{
+				FAssetRegistryModule::AssetDeleted(Asset.Blueprint);
+				Asset.Blueprint->ClearFlags(RF_Public | RF_Standalone);
+			}
+			if (Asset.Package)
+			{
+				Asset.Package->SetDirtyFlag(false);
+				Asset.Package->ClearFlags(RF_Standalone);
+				// As in package unloading, include standalone metadata and other owned objects.
+				ForEachObjectWithPackage(Asset.Package, [](UObject* Object)
+				{
+					Object->ClearFlags(RF_Standalone);
+					return true;
+				});
+			}
+			CollectGarbage(GARBAGE_COLLECTION_KEEPFLAGS);
+		}
+	};
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPawnGraphGuidWiring, "UEMCP.BlueprintHandlers.PawnGraphGuidWiring",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FPawnGraphGuidWiring::RunTest(const FString& Parameters)
+{
+	using namespace UEMCP::Blueprint::Tests;
+	if (!TestTrue(TEXT("Idle editor history"), GEditor && GEditor->Trans && !GEditor->Trans->IsActive() && !GUndo)) return false;
+	TStrongObjectPtr<UTransactor> EditorHistory(GEditor->Trans.Get());
+	const int32 PreviousQueueLength = EditorHistory->GetQueueLength();
+	const int32 PreviousUndoCount = EditorHistory->GetUndoCount();
+	TWeakObjectPtr<UBlueprint> RetiredBlueprint;
+	ON_SCOPE_EXIT
+	{
+		TestTrue(TEXT("Restore editor transaction buffer after teardown"), GEditor->Trans.Get() == EditorHistory.Get());
+		TestEqual(TEXT("Pawn fixture preserves the editor Undo queue"), EditorHistory->GetQueueLength(), PreviousQueueLength);
+		TestEqual(TEXT("Pawn fixture preserves the editor Undo cursor"), EditorHistory->GetUndoCount(), PreviousUndoCount);
+		TestFalse(TEXT("Ordinary collection released the wired Blueprint"), RetiredBlueprint.IsValid());
+	};
+	FScopedPawnFixture PawnFixture;
+	FFixtureBlueprint& Fixture = PawnFixture.Asset;
+	RetiredBlueprint = Fixture.Blueprint;
+	if (!TestNotNull(TEXT("Pawn Blueprint"), Fixture.Blueprint)) return false;
+	UEdGraph* Graph = FixtureEventGraph(Fixture.Blueprint);
+	if (!TestNotNull(TEXT("Pawn Event Graph"), Graph)) return false;
+	auto Call = MakeShared<FJsonObject>();
+	Call->SetStringField(TEXT("blueprint_name"), Fixture.PackagePath);
+	Call->SetStringField(TEXT("function_name"), TEXT("Not_PreBool"));
+	Call->SetStringField(TEXT("target"), TEXT("KismetMathLibrary"));
+	auto PlaceCall = [&]()
+	{
+		return FindNodeByGuid(Graph, StringFieldOr(ResultOf(Dispatch(TEXT("add_blueprint_function_node"), Call)), TEXT("node_id")));
+	};
+	UEdGraphNode* Source = PlaceCall();
+	UEdGraphNode* Target = PlaceCall();
+	if (!TestNotNull(TEXT("Source"), Source) || !TestNotNull(TEXT("Target"), Target)) return false;
+	auto Connect = MakeShared<FJsonObject>();
+	Connect->SetStringField(TEXT("blueprint_name"), Fixture.PackagePath);
+	Connect->SetStringField(TEXT("graph_guid"), Graph->GraphGuid.ToString());
+	Connect->SetStringField(TEXT("source_node_id"), Source->NodeGuid.ToString());
+	Connect->SetStringField(TEXT("source_pin"), TEXT("ReturnValue"));
+	Connect->SetStringField(TEXT("target_node_id"), Target->NodeGuid.ToString());
+	Connect->SetStringField(TEXT("target_pin"), TEXT("A"));
+	FString Code;
+	if (!TestTrue(TEXT("Wire the owned pawn graph by GUID"), IsSuccess(Dispatch(TEXT("connect_blueprint_nodes"), Connect), Code))) return false;
+	auto Pin = MakeShared<FJsonObject>();
+	Pin->SetStringField(TEXT("blueprint_name"), Fixture.PackagePath);
+	Pin->SetStringField(TEXT("node_id"), Target->NodeGuid.ToString());
+	Pin->SetStringField(TEXT("pin"), TEXT("A"));
+	Pin->SetStringField(TEXT("graph_guid"), Graph->GraphGuid.ToString());
+	Pin->SetStringField(TEXT("graph_name"), TEXT("WrongGraph"));
+	for (const TCHAR* Op : {TEXT("show_blueprint_pin_links"), TEXT("disconnect_blueprint_pin")})
+	{
+		TestEqual(TEXT("Name and GUID must agree"), ErrorCodeOf(Dispatch(Op, Pin)), FString(TEXT("GRAPH_IDENTITY_MISMATCH")));
+	}
+	Pin->RemoveField(TEXT("graph_name"));
+	Pin->SetStringField(TEXT("graph_guid"), Source->NodeGuid.ToString());
+	TestEqual(TEXT("Unknown graph cannot inspect the default graph"), ErrorCodeOf(Dispatch(TEXT("show_blueprint_pin_links"), Pin)), FString(TEXT("GRAPH_NOT_FOUND")));
+	Pin->SetStringField(TEXT("graph_guid"), Graph->GraphGuid.ToString());
+	TestTrue(TEXT("Inspect by graph GUID"), IsSuccess(Dispatch(TEXT("show_blueprint_pin_links"), Pin), Code));
+	TestTrue(TEXT("Read leaves reciprocal wire intact"), Source->FindPinChecked(TEXT("ReturnValue"))->LinkedTo.Contains(Target->FindPinChecked(TEXT("A"))));
+	TestTrue(TEXT("Disconnect by graph GUID"), IsSuccess(Dispatch(TEXT("disconnect_blueprint_pin"), Pin), Code));
+	TestTrue(TEXT("Disconnect removed both ends"), Source->FindPinChecked(TEXT("ReturnValue"))->LinkedTo.IsEmpty() && Target->FindPinChecked(TEXT("A"))->LinkedTo.IsEmpty());
+	TestTrue(TEXT("Pawn edits are recorded in the fixture history"), PawnFixture.History->IsObjectInTransactionBuffer(Source));
+	TestFalse(TEXT("Editor Undo history holds no pawn fixture node"), EditorHistory->IsObjectInTransactionBuffer(Source));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FReadOnlyGraphWiring, "UEMCP.BlueprintHandlers.ReadOnlyGraphWiring",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FReadOnlyGraphWiring::RunTest(const FString&)
+{
+	using namespace UEMCP::Blueprint::Tests;
+	if (!TestTrue(TEXT("Idle editor history"), GEditor && GEditor->Trans && !GEditor->Trans->IsActive() && !GUndo)) return false;
+	FScopedPawnFixture Pawn;
+	FFixtureBlueprint& Fixture = Pawn.Asset;
+	if (!TestNotNull(TEXT("Pawn fixture"), Fixture.Blueprint)) return false;
+	UEdGraph* Event = FixtureEventGraph(Fixture.Blueprint);
+	UEdGraph* Other = FBlueprintEditorUtils::CreateNewGraph(Fixture.Blueprint, TEXT("SecondaryEvents"),
+		UEdGraph::StaticClass(), UEdGraphSchema_K2::StaticClass());
+	if (!TestNotNull(TEXT("Event graph"), Event) || !TestNotNull(TEXT("Secondary graph"), Other)) return false;
+	FBlueprintEditorUtils::AddUbergraphPage(Fixture.Blueprint, Other);
+	for (UEdGraph* Graph : { Event, Other })
+	{
+		auto Call = MakeShared<FJsonObject>();
+		Call->SetStringField(TEXT("blueprint_name"), Fixture.PackagePath);
+		Call->SetStringField(TEXT("graph_name"), Graph->GetName());
+		Call->SetStringField(TEXT("function_name"), TEXT("Not_PreBool"));
+		Call->SetStringField(TEXT("target"), TEXT("KismetMathLibrary"));
+		auto Place = [&]()
+		{
+			return FindNodeByGuid(Graph, StringFieldOr(ResultOf(Dispatch(TEXT("add_blueprint_function_node"), Call)), TEXT("node_id")));
+		};
+		UEdGraphNode* Source = Place();
+		UEdGraphNode* Linked = Place();
+		UEdGraphNode* Unlinked = Place();
+		if (!TestTrue(TEXT("Placed three call nodes"), Source && Linked && Unlinked)) return false;
+		UEdGraphPin* Output = Source->FindPinChecked(TEXT("ReturnValue"));
+		UEdGraphPin* Input = Linked->FindPinChecked(TEXT("A"));
+		Output->MakeLinkTo(Input);
+		Graph->bEditable = false;
+		Fixture.Package->SetDirtyFlag(false);
+		const FString Revision = UEMCP::GraphTopologyRevision(Graph);
+		const int32 Queue = Pawn.History->GetQueueLength();
+		const int32 Cursor = Pawn.History->GetUndoCount();
+		for (const TCHAR* Selector : { TEXT("graph_guid"), TEXT("graph_name"), TEXT("") })
+		{
+			if (!*Selector && Graph != Event) continue;
+			auto Wire = MakeShared<FJsonObject>();
+			Wire->SetStringField(TEXT("blueprint_name"), Fixture.PackagePath);
+			if (*Selector)
+			{
+				Wire->SetStringField(Selector, FCString::Strcmp(Selector, TEXT("graph_guid")) == 0 ? Graph->GraphGuid.ToString() : Graph->GetName());
+			}
+			Wire->SetStringField(TEXT("node_id"), Linked->NodeGuid.ToString());
+			Wire->SetStringField(TEXT("pin"), TEXT("A"));
+			const FString Label = Graph->GetName() + TEXT(" / ") + (*Selector ? Selector : TEXT("default"));
+			FString Code;
+			TestTrue(*FString::Printf(TEXT("Inspect frozen graph %s"), *Label),
+				IsSuccess(Dispatch(TEXT("show_blueprint_pin_links"), Wire), Code));
+			Wire->SetBoolField(TEXT("dry_run"), true);
+			Wire->SetBoolField(TEXT("compile"), true);
+			const auto Preview = ResultOf(Dispatch(TEXT("disconnect_blueprint_pin"), Wire));
+			TestEqual(*FString::Printf(TEXT("Preview frozen link %s"), *Label), NumberFieldOr(Preview, TEXT("links_matched"), -1), 1.0);
+			TestTrue(TEXT("Preview neither breaks links nor compiles"), Preview.IsValid() && !Preview->GetBoolField(TEXT("compiled")) &&
+				Preview->GetNumberField(TEXT("links_broken")) == 0);
+			Wire->RemoveField(TEXT("dry_run"));
+			TestEqual(*FString::Printf(TEXT("Refuse disconnect %s"), *Label),
+				ErrorCodeOf(Dispatch(TEXT("disconnect_blueprint_pin"), Wire)), FString(TEXT("READ_ONLY_GRAPH")));
+			Wire->RemoveField(TEXT("node_id"));
+			Wire->RemoveField(TEXT("pin"));
+			Wire->SetStringField(TEXT("source_node_id"), Source->NodeGuid.ToString());
+			Wire->SetStringField(TEXT("source_pin"), TEXT("ReturnValue"));
+			Wire->SetStringField(TEXT("target_node_id"), Unlinked->NodeGuid.ToString());
+			Wire->SetStringField(TEXT("target_pin"), TEXT("A"));
+			TestEqual(*FString::Printf(TEXT("Refuse connect %s"), *Label),
+				ErrorCodeOf(Dispatch(TEXT("connect_blueprint_nodes"), Wire)), FString(TEXT("READ_ONLY_GRAPH")));
+			TestEqual(TEXT("Frozen graph retains its wiring"), UEMCP::GraphTopologyRevision(Graph), Revision);
+			TestTrue(TEXT("Original reciprocal edge remains"), Output->LinkedTo.Contains(Input) && Input->LinkedTo.Contains(Output));
+			TestTrue(TEXT("Requested input stays unlinked"), Unlinked->FindPinChecked(TEXT("A"))->LinkedTo.IsEmpty());
+			TestFalse(TEXT("Package stays clean"), Fixture.Package->IsDirty());
+			TestEqual(TEXT("Undo queue stays intact"), Pawn.History->GetQueueLength(), Queue);
+			TestEqual(TEXT("Undo cursor stays intact"), Pawn.History->GetUndoCount(), Cursor);
+		}
+	}
+	UEdGraph* FunctionGraph = FBlueprintEditorUtils::CreateNewGraph(Fixture.Blueprint, TEXT("OtherFunction"), UEdGraph::StaticClass(), UEdGraphSchema_K2::StaticClass());
+	if (!TestNotNull(TEXT("Unsupported graph for GUID wiring"), FunctionGraph)) return false;
+	Fixture.Blueprint->FunctionGraphs.Add(FunctionGraph);
+	auto Preview = MakeShared<FJsonObject>();
+	Preview->SetStringField(TEXT("blueprint_name"), Fixture.PackagePath);
+	Preview->SetStringField(TEXT("graph_guid"), FunctionGraph->GraphGuid.ToString());
+	Preview->SetStringField(TEXT("node_id"), FunctionGraph->GraphGuid.ToString());
+	Preview->SetStringField(TEXT("pin"), TEXT("A"));
+	Preview->SetBoolField(TEXT("dry_run"), true);
+	TestEqual(TEXT("Preview preserves GUID wiring graph restrictions"), ErrorCodeOf(Dispatch(TEXT("disconnect_blueprint_pin"), Preview)), FString(TEXT("UNSUPPORTED_GRAPH")));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPawnFixtureEarlyReturn, "UEMCP.BlueprintHandlers.PawnFixtureEarlyReturn",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FPawnFixtureEarlyReturn::RunTest(const FString&)
+{
+	using namespace UEMCP::Blueprint::Tests;
+	if (!TestTrue(TEXT("Idle editor history"), GEditor && GEditor->Trans && !GEditor->Trans->IsActive() && !GUndo)) return false;
+	TStrongObjectPtr<UTransactor> EditorHistory(GEditor->Trans.Get());
+	TStrongObjectPtr<UTransBuffer> CallerHistory(NewObject<UTransBuffer>());
+	CallerHistory->Initialize(8 * 1024 * 1024);
+	TGuardValue<decltype(GEditor->Trans)> UseCaller(GEditor->Trans, CallerHistory.Get());
+	TStrongObjectPtr<UUEMCPTestObject> Unrelated(NewObject<UUEMCPTestObject>(GetTransientPackage(), NAME_None, RF_Transactional));
+	{
+		FScopedTransaction Transaction(NSLOCTEXT("UEMCPTests", "UnrelatedPawnEdit", "Edit unrelated test object"));
+		Unrelated->Modify();
+		Unrelated->IntValue = 19;
+	}
+	if (!TestTrue(TEXT("Seed unrelated redo entry"), CallerHistory->Undo())) return false;
+
+	TWeakObjectPtr<UBlueprint> RetiredBlueprint;
+	TWeakObjectPtr<UTransBuffer> RetiredHistory;
+	auto AbortEdit = [&]()
+	{
+		FScopedPawnFixture PawnFixture;
+		RetiredHistory = PawnFixture.History.Get();
+		RetiredBlueprint = PawnFixture.Asset.Blueprint;
+		if (!TestNotNull(TEXT("Created pawn for interrupted edit"), PawnFixture.Asset.Blueprint)) return false;
+		{
+			FScopedTransaction Transaction(NSLOCTEXT("UEMCPTests", "PawnInterruptedEdit", "Edit pawn before interruption"));
+			PawnFixture.Asset.Blueprint->Modify();
+			PawnFixture.Asset.Blueprint->BlueprintDescription = TEXT("Interrupted fixture edit");
+		}
+		TestTrue(TEXT("Private Undo record references the pawn before early return"),
+			PawnFixture.History->IsObjectInTransactionBuffer(PawnFixture.Asset.Blueprint));
+		auto Request = MakeShared<FJsonObject>();
+		Request->SetStringField(TEXT("blueprint_name"), PawnFixture.Asset.PackagePath);
+		Request->SetStringField(TEXT("graph_guid"), FGuid::NewGuid().ToString());
+		Request->SetStringField(TEXT("node_id"), FGuid::NewGuid().ToString());
+		Request->SetStringField(TEXT("pin"), TEXT("A"));
+		const auto Response = Dispatch(TEXT("show_blueprint_pin_links"), Request);
+		TestEqual(TEXT("Missing graph interrupts the edit"), ErrorCodeOf(Response), FString(TEXT("GRAPH_NOT_FOUND")));
+		FString Code;
+		return IsSuccess(Response, Code);
+	};
+	TestFalse(TEXT("Edit exits before completion"), AbortEdit());
+	TestTrue(TEXT("Return restores caller buffer"), GEditor->Trans.Get() == CallerHistory.Get());
+	if (UTransBuffer* History = RetiredHistory.Get())
+	{
+		TestEqual(TEXT("Fixture transactions released at scope exit"), History->GetQueueLength(), 0);
+	}
+	TestFalse(TEXT("Ordinary collection released the interrupted Blueprint"), RetiredBlueprint.IsValid());
+	if (!TestTrue(TEXT("Unrelated redo remains executable"), CallerHistory->Redo())) return false;
+	TestEqual(TEXT("Redo restored unrelated property"), Unrelated->IntValue, 19);
 	return true;
 }
 

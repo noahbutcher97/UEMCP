@@ -1,5 +1,10 @@
 import assert from 'node:assert/strict';
-import { materialLiveEditorArgs, readMcpJson, verifyLiveIdentity, materialMcpEnvelope } from './run-material-live.mjs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
+import { materialLiveEditorArgs, readMcpJson, requireMaterialLiveAllowlist, runMaterialLive, verifyLiveIdentity, materialMcpEnvelope } from './run-material-live.mjs';
+import { openOwnedEditorSession } from './owned-editor-session.mjs';
+import { runProjectIsolation } from './run-project-isolation.mjs';
 import { TestRunner } from './test-helpers.mjs';
 const t = new TestRunner('Material live runner contract');
 const args = materialLiveEditorArgs({ project: 'D:/Owned/UEMCPFixture.uproject', runtime: { args: ['-UserDir=D:/Owned/User'] }, port: 43210, tcpPort: 43211, log: 'D:/Owned/live.log' });
@@ -28,5 +33,21 @@ for (const dispatcher of ['call_tool', 'call_mutating_tool']) {
 for (const descriptor of [{ ok: true, tool: 'wrong', dispatcher: 'call_tool' }, { ok: true, tool: 'set_material_parameter', dispatcher: 'unexpected' }]) {
   try { assert.throws(() => materialMcpEnvelope('set_material_parameter', {}, descriptor)); t.assert(true, 'invalid MCP description cannot redirect the request'); }
   catch (error) { t.assert(false, 'MCP description assertion', error.stack); }
+}
+const root = mkdtempSync(join(tmpdir(), 'uemcp-material-capability-'));
+try {
+  const engineRoot = join(root, 'engine');
+  const outputRoot = join(root, 'stage');
+  for (const run of [runMaterialLive, runProjectIsolation, openOwnedEditorSession]) {
+    await assert.rejects(run({ engineRoot, outputRoot }), /requires an engine with the Remote Control function allowlist/);
+    t.assert(!existsSync(outputRoot), `${run.name} refuses an unsupported engine before staging or launching`);
+  }
+  const header = join(engineRoot, 'Engine/Plugins/VirtualProduction/RemoteControl/Source/RemoteControlCommon/Public/RCAllowedRemoteFunctionCall.h');
+  mkdirSync(dirname(header), { recursive: true });
+  writeFileSync(header, '');
+  assert.doesNotThrow(() => requireMaterialLiveAllowlist(engineRoot));
+  t.assert(true, 'engine feature preflight recognizes the editor module header');
+} finally {
+  rmSync(root, { recursive: true });
 }
 process.exit(t.summary());

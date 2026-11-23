@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { runMaterialLifecycle } from './run-material-lifecycle.mjs';
+import { requireMaterialLiveAllowlist } from './run-material-live.mjs';
 import { configureProjectPorts } from './configure-project-ports.mjs';
 import { openOwnedEditorSession } from './owned-editor-session.mjs';
 import { MATERIAL_INSTANCE, hostControl } from './material-live-flow.mjs';
@@ -21,6 +22,7 @@ const closeAll = async sessions => {
 };
 export async function runProjectIsolation({ repoRoot = resolve(import.meta.dirname, '..'), outputRoot, engineRoot }) {
   if (!outputRoot || !engineRoot) throw new Error('Explicit fresh stage and engine required');
+  requireMaterialLiveAllowlist(engineRoot);
   mkdirSync(outputRoot); // A repeat invocation must never reuse a previous result.
   const targetsPath = join(outputRoot, '.uemcp-targets.json');
   const stages = ['A', 'B'].map(label => ({ label, outputRoot: join(outputRoot, label) }));

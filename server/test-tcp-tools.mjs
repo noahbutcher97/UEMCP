@@ -82,7 +82,7 @@ console.log('\n── Group 12: Blueprints-write Tool Definitions ──');
     'add_variable_get', 'add_variable_set', 'set_variable_default', 'add_variable_assignment',
     'add_timer', 'add_control_node', 'add_math_node', 'add_self_reference',
     'add_anim_state_machine', 'add_anim_state', 'add_anim_transition',
-    'add_component_reference', 'place_anim_graph_node', 'insert_anim_slot', 'edit_anim_cached_pose', 'connect_nodes', 'show_pin_links', 'disconnect_pin', 'delete_nodes', 'find_nodes',
+    'add_component_reference', 'place_graph_action', 'place_anim_graph_node', 'insert_anim_slot', 'edit_anim_cached_pose', 'connect_nodes', 'show_pin_links', 'disconnect_pin', 'delete_nodes', 'find_nodes',
     'add_cast_node', 'add_parent_function_call', 'override_parent_member',
   ];
 
@@ -347,6 +347,13 @@ console.log('\n── Group 14: Blueprints-write Param Pass-through ──');
   t.assert(showLinksCall.params.node_id === 'guid-1', 'show_pin_links: node_id passed');
   t.assert(showLinksCall.params.target_pin === 'execute', 'show_pin_links: target_pin filter passed');
   t.assert(showLinksCall.params.graph_name === 'MoveStep', 'show_pin_links: graph_name passed');
+  await executeBlueprintsWriteTool('show_pin_links', {
+    blueprint_name: 'BP_Test', graph_name: 'MoveStep', node_name: 'K2Node_CallFunction_0',
+  }, cm);
+  const listedNode = fake.lastCall('show_blueprint_pin_links').params;
+  t.assert(listedNode.node_name === 'K2Node_CallFunction_0' && listedNode.graph_name === 'MoveStep'
+    && listedNode.pin === undefined && listedNode.node_id === undefined,
+  'show_pin_links: exact graph/object lookup lists pins without inventing a pin or GUID');
 
   await executeBlueprintsWriteTool('disconnect_pin', {
     blueprint_name: 'BP_Test', node_id: 'guid-1', pin: 'then', direction: 'output',

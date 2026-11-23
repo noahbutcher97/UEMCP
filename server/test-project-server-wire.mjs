@@ -2,7 +2,7 @@
 //
 // Run: cd server && node test-project-server-wire.mjs
 
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -197,6 +197,155 @@ await runCase('one direct project root auto-attaches and emits one tool-list not
 
     await app.server.close();
   } finally {
+    cleanup(root);
+  }
+});
+
+await runCase('Blueprint readers accept discovered numeric export indices over MCP', async () => {
+  const root = makeTempRoot();
+  let app;
+  try {
+    const project = writeProject(root, 'OwnedNumeric');
+    const directory = join(root, 'Content', 'Serialization');
+    mkdirSync(directory);
+    copyFileSync(new URL('./fixtures/serialization/ue5.6-owned-v1/Content/Serialization/BP_OwnedLink.uasset', import.meta.url),
+      join(directory, 'BP_OwnedLink.uasset'));
+    const instance = await createWireApp({ cwd: root });
+    app = instance.app;
+    const { transport } = instance;
+    await initialize(transport);
+    await callTool(transport, 'attach_project', { uproject_path: project.uprojectPath });
+    await callTool(transport, 'enable_toolset', { toolsets: ['offline'] });
+    const asset_path = '/Game/Serialization/BP_OwnedLink';
+    const found = parseTextResult(await callTool(transport, 'bp_find_in_graph', {
+      asset_path, graph_name: 'OwnedGraph', node_class: 'K2Node_CallFunction',
+    }));
+    const node = found.nodes[0];
+    t.assert(node.node_guid === '12345678000000020000000300000004',
+      'discovery returns the function-call GUID recorded in the owned fixture oracle');
+    t.assert(Number.isInteger(node.node_id), 'wire graph discovery returns a numeric export index');
+    const inspected = await callTool(transport, 'bp_show_node', { asset_path, node_id: node.node_id });
+    t.assert(parseTextResult(inspected).node?.node_guid === node.node_guid,
+      'wire node inspection accepts the discovered integer and returns the same engine GUID');
+    const byStringIndex = parseTextResult(await callTool(transport, 'bp_show_node', { asset_path, node_id: String(node.node_id) }));
+    t.assert(byStringIndex.node?.node_guid === node.node_guid, 'wire node inspection still accepts numeric strings');
+    const byName = parseTextResult(await callTool(transport, 'bp_show_node', { asset_path, node_id: node.node_name }));
+    t.assert(byName.node?.node_guid === node.node_guid, 'wire node inspection still accepts object names');
+    const comment = await callTool(transport, 'bp_subgraph_in_comment', { asset_path, comment_node_id: node.node_id });
+    t.assert(comment.result?.isError && /not a comment/i.test(comment.result.content[0].text),
+      'wire comment reader reaches the class check with the same numeric index');
+    const invalid = await callTool(transport, 'bp_show_node', { asset_path, node_id: 1.5 });
+    t.assert(invalid.error?.code === -32602 || (invalid.result?.isError && /integer/i.test(invalid.result.content[0].text)),
+      'wire node inspection rejects fractional indices during validation');
+  } finally {
+    if (app) await app.server.close();
+    cleanup(root);
+  }
+});
+
+await runCase('Blueprint function arguments distinguish saved bytes, live links and unavailable observations', async () => {
+  const root = makeTempRoot();
+  let app;
+  try {
+    const project = writeProject(root, 'InputProbe');
+    const fixture = new URL('./fixtures/serialization/ue5.6-owned-v1/Content/Serialization/BP_OwnedLink.uasset', import.meta.url);
+    const assetFile = join(root, 'Content', 'BP_OwnedLink.uasset');
+    copyFileSync(fixture, assetFile);
+    const before = readFileSync(assetFile);
+    const requests = [];
+    let owner = project.uprojectPath;
+    let missing = false;
+    let nodeClass = 'K2Node_CallFunction';
+    let namedRevision = 'rev1';
+    let namedOrphaned = false;
+    let reportOrphans = true;
+    const instance = await createWireApp({
+      cwd: root,
+      tcpCommandFn: async (_port, type, args) => {
+        requests.push(type);
+        if (type === 'get_editor_state') return { status: 'success', result: { uproject_path: owner } };
+        if (type !== 'show_blueprint_pin_links') throw new Error('Unexpected command ' + type);
+        if (missing) return { status: 'error', message: 'Node has been removed', error_code: 'NODE_NOT_FOUND' };
+        t.assert(args.graph_name === 'OwnedGraph' && args.blueprint_name === '/Game/BP_OwnedLink'
+          && args.node_id === '12345678000000020000000300000004', 'editor lookup uses the saved owner, graph and engine GUID');
+        if (!args.pin) return { status: 'success', result: { graph_name: args.graph_name, node_id: args.node_id,
+          node_class: nodeClass, topology_revision: 'rev1',
+          pins: [
+            { name: 'InString', direction: 'input', ...(reportOrphans ? { orphaned: false } : {}),
+              pin_id: 'LivePin', link_count: 1, default: 'Changed' },
+            { name: 'RemovedArgument', direction: 'input', orphaned: true, pin_id: 'OldPin', link_count: 0, default: 'Old' },
+          ] } };
+        return { status: 'success', result: { graph_name: args.graph_name, node_id: args.node_id, topology_revision: namedRevision,
+          pin_info: { name: args.pin, pin_id: 'LivePin', direction: 'input', orphaned: namedOrphaned, default: 'Changed', link_count: 1 },
+          links: [{ node_id: 'Producer', pin: 'Result' }] } };
+      },
+    });
+    app = instance.app;
+    const { transport } = instance;
+    await initialize(transport);
+    await callTool(transport, 'attach_project', { uproject_path: project.uprojectPath });
+    await callTool(transport, 'enable_toolset', { toolsets: ['offline'] });
+    const query = { asset_path: '/Game/BP_OwnedLink', graph_name: 'OwnedGraph', pin: 'InString' };
+    const inspect = async (options = {}) => parseTextResult(await callTool(transport, 'inspect_blueprint_inputs', { ...query, ...options }));
+    requests.length = 0;
+    const disk = await inspect({ source: 'saved' });
+    t.assert(disk.node.member_name === 'PrintString' && disk.saved.inputs[0].stored_default.value === 'UEMCP owned serialization fixture',
+      'plain graph name selects one real saved function call and its actual text argument');
+    t.assert(disk.live.status === 'not_requested' && requests.length === 0, 'saved-only inspection issues zero TCP commands');
+    const linked = await inspect({ source: 'saved', pin: 'execute' });
+    t.assert(linked.saved.inputs[0].binding === 'linked' && linked.saved.inputs[0].linked_to[0].owning_node_package_index === 8,
+      'saved connected input preserves its source reference');
+    const compared = await inspect({ member_name: 'PrintString' });
+    t.assert(compared.saved.inputs[0].binding === 'unlinked' && compared.live.inputs[0].binding === 'linked'
+      && compared.live.inputs[0].stored_default.value === 'Changed' && compared.live.inputs[0].linked_to[0].node_id === 'Producer'
+      && compared.runtime === 'not_evaluated', 'live linked default stays separate from the saved literal and runtime evaluation');
+    t.assert(requests.join(',') === 'get_editor_state,show_blueprint_pin_links,get_editor_state,show_blueprint_pin_links',
+      'named connected pin checks ownership for class and endpoint reads');
+    t.assert(compared.argument_evaluation === 'not_performed' && compared.live.member_identity === 'not_reported_by_editor'
+      && compared.live.pin_semantics === 'split_and_default_flags_not_reported',
+      'matching pin identity preserves unknown editor member, split-pin state and argument evaluation');
+    const all = await inspect({ pin: undefined });
+    t.assert(all.live.inputs.length === 1 && all.live.inputs[0].name === 'InString',
+      'live function arguments omit retained orphan pins');
+    const orphan = await inspect({ pin: 'RemovedArgument' });
+    t.assert(orphan.live.status === 'pin_not_found' && !orphan.live.input_names.includes('RemovedArgument'),
+      'a removed input cannot be selected as a current function argument');
+    nodeClass = 'K2Node_VariableSet';
+    t.assert((await inspect()).live.status === 'unexpected_node_reply', 'contradictory live class cannot supply the saved function argument');
+    nodeClass = 'K2Node_CallFunction';
+    namedRevision = 'rev2';
+    t.assert((await inspect()).live.status === 'inconsistent_pin_reply', 'a changed graph revision cannot contribute named link endpoints');
+    namedRevision = 'rev1';
+    namedOrphaned = true;
+    t.assert((await inspect()).live.status === 'inconsistent_pin_reply',
+      'an input orphaned before endpoint readback cannot supply a current binding');
+    namedOrphaned = false;
+    reportOrphans = false;
+    const legacy = await inspect();
+    t.assert(legacy.saved.status === 'observed' && legacy.live.status === 'pin_metadata_unavailable'
+      && legacy.live.missing_field === 'orphaned' && !legacy.live.inputs && /rebuild/i.test(legacy.live.message),
+      'an older editor preserves the saved observation and explains how to restore current input inspection');
+    reportOrphans = true;
+    owner = join(root, 'Another.uproject');
+    requests.length = 0;
+    const wrong = await inspect();
+    t.assert(wrong.saved.status === 'observed' && wrong.live.reason === 'EDITOR_PROJECT_MISMATCH'
+      && requests.join(',') === 'get_editor_state', 'another editor cannot receive the scoped graph query');
+    owner = project.uprojectPath;
+    missing = true;
+    const removed = await inspect();
+    t.assert(removed.saved.status === 'observed' && removed.live.reason === 'NODE_NOT_FOUND',
+      'deleted live node preserves independent saved observation');
+    requests.length = 0;
+    const onlyLive = await inspect({ member_name: 'UnsavedMember' });
+    t.assert(onlyLive.saved.status === 'node_not_found' && onlyLive.live.status === 'no_unique_saved_node'
+      && requests.length === 0, 'missing saved match cannot be mistaken for proof about a live-only addition');
+    const missingPin = await inspect({ source: 'saved', pin: 'BadInput' });
+    t.assert(missingPin.saved.status === 'pin_not_found' && missingPin.saved.input_names.includes('InString'),
+      'misspelled pin returns available input names');
+    t.assert(readFileSync(assetFile).equals(before), 'all inspections preserve saved asset bytes');
+  } finally {
+    if (app) await app.server.close();
     cleanup(root);
   }
 });

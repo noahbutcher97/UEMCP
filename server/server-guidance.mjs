@@ -12,7 +12,7 @@ function deepFreeze(value) {
 export const SERVER_INSTRUCTIONS = [
   'UEMCP provides Unreal Engine project, asset, Blueprint, level, animation, editor, and runtime tools. Use it for UE-specific inspection or mutation that ordinary filesystem and search tools cannot perform. Start with connection_info to verify project, deployment, and editor context. Call find_tools(query) to discover and enable the smallest relevant toolset. Offline tools read project files without an editor; live tools require the matching editor.',
   'If a tool find_tools reports is missing from your tool list, get its schema with describe_tool and run it with call_tool (reads) or call_mutating_tool (writes).',
-  'Disable unused toolsets to reduce context. list_config_values is progressive: call with no arguments for files, with a file for sections, and with a file and section for keys and values. search_gameplay_tags accepts * for one path level and ** across levels.',
+  'For actual Blueprint function-call arguments, inspect_blueprint_inputs reads the saved graph and compares current pins in the matching editor. Report the observed values and uncertainty before optional toolset cleanup. list_config_values is progressive: call with no arguments for files, with a file for sections, and with a file and section for keys and values. search_gameplay_tags accepts * for one path level and ** across levels.',
 ].join(' ');
 
 export const TOOLSET_TIPS = deepFreeze({
@@ -44,7 +44,7 @@ export const TOOLSET_TIPS = deepFreeze({
       'compile_blueprint returns diagnostic-quality lifecycle output: succeeded/compiled/compiled_ok, error and warning counts, messages, generated-class status, dirty status, and package path.',
       'add_variable_assignment authors target_variable = literal or target_variable = source_variable in a target graph, returning node/pin/link metadata and requires_compile.',
       'set_pawn_props returns per-property results - partial success is possible. Check the results object.',
-      'Node graph commands return node GUIDs. Use connect_nodes with source/target GUIDs + pin names to wire them together.',
+      'Use find_graph_actions to discover an Enhanced Input event or Sequence Player, then place_graph_action to place it. Wire the returned nodes and pins with connect_nodes.',
       'find_nodes currently supports only node_type="Event". Other types are not yet searchable.',
       'add_function_node has complex resolution: specify target class (e.g., "GameplayStatics") to find library functions, or omit for BP-local functions.',
       'add_variable supports only 5 types: Boolean, Integer/Int, Float, String, Vector.',
@@ -72,7 +72,7 @@ export const TOOLSET_TIPS = deepFreeze({
     ].join(' '),
     workflows: [{
       requires: ['blueprints-write'],
-      tip: 'add_input_action_node (in this toolset) uses legacy Input Actions, NOT Enhanced Input. For Enhanced Input, use the input-and-pie toolset instead.',
+      tip: 'Use add_input_action_node for legacy named mappings. To bind an Enhanced Input Action asset, run find_graph_actions on the pawn EventGraph and place_graph_action with the selected ID.',
     }],
   },
 
@@ -96,7 +96,7 @@ export const TOOLSET_TIPS = deepFreeze({
       'Plugin-backed (tcp-55558) - full flag surface including Category/Replicated/EditAnywhere that RC\'s SanitizeMetadata allowlist strips out. Prefer these over rc_describe_object when you need reflection fidelity.',
       'get_blueprint_info returns summary {super_class, interfaces, property_count, function_count}. Follow up with get_blueprint_variables or get_blueprint_functions for the full lists.',
       'get_blueprint_components filters get_blueprint_variables down to component-class properties (heuristic: property_class contains "Component" OR name ends _GEN_VARIABLE SCS suffix). Conservative - may miss exotic cases.',
-      'bp_compile_and_report triggers a fresh compile and captures FCompilerResultsLog with node_guid attribution. blueprints-write.compile_blueprint now also returns diagnostic counts/messages, but bp_compile_and_report remains the richer read-focused graph diagnostic surface.',
+      'bp_compile_and_report recompiles the Blueprint and regenerates its generated class. Use it when the user requests compilation and needs per-node diagnostics. For an inspection-only task read the pins with inspect_blueprint_inputs.',
       'get_widget_blueprint walks UWidgetTree root recursively. Empty widget trees return root_widget:null (valid, not an error).',
     ].join(' '),
     workflows: [
@@ -118,7 +118,7 @@ export const TOOLSET_TIPS = deepFreeze({
   'animation': {
     core: [
       'get_montage_full, get_anim_sequence_info, and get_anim_graph are full tcp-55558 asset-instance reads - they load UAnimMontage/UAnimSequence/UAnimBlueprint and return montage sections, notifies, slot tracks, sequence skeleton/rate data, and static AnimGraph topology. Use get_anim_graph include_pin_topology=true when you need visual UEdGraph node/pin/LinkedTo wiring. get_blend_space and get_anim_curve_data remain reflection-backed reads; pair with read_asset_properties (offline) for batch file-level inspection.',
-      'Mutation tools (create_montage, add_montage_section, add_montage_notify) live on tcp-55558 (UEMCP plugin, M5-anim+mat per D105). create_montage emits a single DefaultSlot (D119 NEW-1 fix); section_name in add_montage_section must not collide with existing sections - API silently overwrites.',
+      'Create a montage, add named sections before the clip ends, and set their playback links with set_montage_next_section. get_montage_full shows section times and next_section. An empty next_section in the writer ends the route. Add instantaneous or state notifies within the playable clip and save when ready.',
     ].join(' '),
     workflows: [{ requires: ['offline'], tip: 'For montage sections / notifies / curve keyframes without editor, use read_asset_properties - D50 tagged-fallback covers their struct-typed fields via FPropertyTag iteration.' }],
   },
@@ -135,7 +135,7 @@ export const TOOLSET_TIPS = deepFreeze({
 
   'input-and-pie': {
     core: [
-      'Enhanced Input tools (create_input_action, create_mapping_context, add_mapping) are asset-creation only - they do NOT bind runtime input. Binding happens in BP graph or C++.',
+      'Create and map Enhanced Input assets here. Bind one to a pawn with find_graph_actions on its EventGraph followed by place_graph_action.',
       'start_pie accepts mode: "viewport" (default), "standalone" (new process), "new_window" (in-process). Async request - IsPlaySessionInProgress may not flip immediately.',
       'stop_pie returns {was_running, requested_stop} - success means the request was issued, not that teardown completed. PIE teardown is async and may leave references briefly.',
       'execute_console_command runs against PlayWorld if PIE is active, else editor world. Commands like "stat fps" need PIE; "listassets *" works editor-side.',

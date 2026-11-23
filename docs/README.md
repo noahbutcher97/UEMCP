@@ -7,6 +7,8 @@
 **Animation authoring priority**: [U5 program](plans/animation-authoring-program.md)
 **Animation research and execution modes**: [ad hoc editing, recipes and offline support](plans/animation-authoring-execution.md)
 **Interactive animation authoring**: [Event Graph blend](plans/animbp-interactive-authoring.md) and [montage Slot insertion](plans/u5-animation-authoring.md)
+
+To bind an Enhanced Input action or play a named sequence, see the [public graph operations](plans/asset-backed-graph-actions.md#using-the-public-operations) and [engine and agent results](plans/graph-action-placement-qualification.md).
 **Organization and research upkeep**: [ecosystem watch and audits](tracking/ecosystem-watch.md)
 
 For local build and editor output, start with the [shared task directory and fixture examples](fixture-host.md#stage-a-fresh-host) and follow the [cleanup protocol](../AGENTS.md#worktree-and-scratch-cleanup).
@@ -67,6 +69,7 @@ For example, material graph support requires both the tool entries and the
 parameter editing has a [separate contract](specs/material-parameter-tools.md).
 Animation authoring's [program](plans/animation-authoring-program.md) describes
 target scope, not a list of already callable tools.
+The [animation qualification record](plans/animation-authoring-qualification.md) lists tested engine and CLI behavior. The [playable character audit](audits/2026-11-21-playable-animation.md) records evaluated motion and remaining authoring gaps. The [inspection and montage decisions](plans/animation-inspection-and-montage-decisions.md) record the subsequent engine and CLI checks.
 
 When a capability or its status changes, update its existing contract and backlog
 entry, and add or repair the route here if needed. Keep capability details in their

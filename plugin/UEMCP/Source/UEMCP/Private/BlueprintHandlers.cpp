@@ -1,5 +1,8 @@
 // Copyright Noah Butcher. All Rights Reserved.
 #include "BlueprintHandlers.h"
+#include "Misc/DefaultValueHelper.h"
+#include "Internationalization/Regex.h"
+#include "Misc/Parse.h"
 #include "CachePoseAuthoring.h"
 #include "Animation/AnimBlueprint.h"
 #include "AnimationStateGraph.h"
@@ -173,23 +176,11 @@ namespace UEMCP
 
 		// ── Graph helpers ────────────────────────────────────────────────────────
 		//
-		// Mirror the shared graph-helper behavior for FindOrCreateEventGraph,
-		// ConnectGraphNodes, and FindPin. These local helpers avoid a dependency on
+		// Mirror the shared graph-helper behavior for ConnectGraphNodes and
+		// FindPin. These local helpers avoid a dependency on
 		// another plugin while preserving the established behavior modulo style.
 
-		UEdGraph* FindOrCreateEventGraph(UBlueprint* Blueprint)
-		{
-			if (!Blueprint) return nullptr;
-			for (UEdGraph* Graph : Blueprint->UbergraphPages)
-			{
-				if (Graph && Graph->GetName().Contains(TEXT("EventGraph")))
-				{
-					return Graph;
-				}
-			}
-			// No EventGraph yet — let the editor utility find one (creating if needed).
-			return FBlueprintEditorUtils::FindEventGraph(Blueprint);
-		}
+		UClass* ResolveBlueprintTargetClassByName(const FString& Identifier);
 
 		UEdGraph* FindGraphByName(UBlueprint* Blueprint, const FString& GraphName)
 		{
@@ -230,11 +221,23 @@ namespace UEMCP
 			return nullptr;
 		}
 
+		enum class EGraphTarget { Name, Read, WirePreview, Wire };
+
 		UEdGraph* ResolveTargetGraph(UBlueprint* Blueprint, const TSharedPtr<FJsonObject>& Params,
-			TSharedPtr<FJsonObject>& OutResponse, bool bAllowGraphGuid = false)
+			TSharedPtr<FJsonObject>& OutResponse, EGraphTarget Target = EGraphTarget::Name)
 		{
+			auto CheckWireAccess = [&](UEdGraph* Graph) -> UEdGraph*
+			{
+				if (Graph && Target == EGraphTarget::Wire &&
+					(FBlueprintEditorUtils::IsGraphReadOnly(Graph) || !IsWritableAnimPackage(Blueprint->GetOutermost())))
+				{
+					BuildErrorResponse(OutResponse, TEXT("Graph or Blueprint package is read-only"), TEXT("READ_ONLY_GRAPH"));
+					return nullptr;
+				}
+				return Graph;
+			};
 			FString GraphName;
-			if (bAllowGraphGuid && Params.IsValid() && Params->HasField(TEXT("graph_guid")))
+			if (Target != EGraphTarget::Name && Params.IsValid() && Params->HasField(TEXT("graph_guid")))
 			{
 				FString Text;
 				FGuid Id;
@@ -245,27 +248,38 @@ namespace UEMCP
 				}
 				TArray<UEdGraph*> Graphs;
 				Blueprint->GetAllGraphs(Graphs);
+				UEdGraph* Match = nullptr;
 				for (UEdGraph* Graph : Graphs)
 				{
 					if (!Graph || Graph->GraphGuid != Id) continue;
+					if (Match && Match != Graph)
+					{
+						BuildErrorResponse(OutResponse, TEXT("Multiple graphs have the supplied GUID"), TEXT("GRAPH_AMBIGUOUS"));
+						return nullptr;
+					}
+					Match = Graph;
+				}
+				if (UEdGraph* Graph = Match)
+				{
 					if (Params->TryGetStringField(TEXT("graph_name"), GraphName) && !GraphName.IsEmpty() && !GraphName.Equals(Graph->GetName(), ESearchCase::IgnoreCase))
 					{
 						BuildErrorResponse(OutResponse, TEXT("Graph name and GUID identify different graphs"), TEXT("GRAPH_IDENTITY_MISMATCH"));
 						return nullptr;
 					}
-					if (!Cast<UAnimBlueprint>(Blueprint) || !Graph->GetSchema() ||
-						!((Graph->GetFName() == TEXT("AnimGraph") && Graph->GetOuter() == Blueprint && Graph->GetSchema()->IsA<UAnimationGraphSchema>()) ||
-						Graph->IsA<UAnimationStateGraph>() || Graph->GetSchema()->GetClass() == UEdGraphSchema_K2::StaticClass()))
+					if (Target == EGraphTarget::Read) return Graph;
+					const auto* Schema = Graph->GetSchema();
+					const bool bPlainK2 = Schema && Schema->GetClass() == UEdGraphSchema_K2::StaticClass();
+					const bool bPawnEvent = bPlainK2 && Blueprint->ParentClass && Blueprint->ParentClass->IsChildOf(APawn::StaticClass()) &&
+						Blueprint->BlueprintType == BPTYPE_Normal && Graph->GetOuter() == Blueprint && Blueprint->UbergraphPages.Contains(Graph);
+					const bool bAnimGraph = Cast<UAnimBlueprint>(Blueprint) && Schema &&
+						((Graph->GetFName() == TEXT("AnimGraph") && Graph->GetOuter() == Blueprint && Schema->IsA<UAnimationGraphSchema>()) ||
+						Graph->IsA<UAnimationStateGraph>() || bPlainK2);
+					if (!bPawnEvent && !bAnimGraph)
 					{
-						BuildErrorResponse(OutResponse, TEXT("GUID wiring supports top-level AnimGraph, state pose graphs and ordinary K2 AnimBP graphs"), TEXT("UNSUPPORTED_GRAPH"));
+						BuildErrorResponse(OutResponse, TEXT("GUID wiring requires an owned Pawn Event Graph or a supported AnimBP graph"), TEXT("UNSUPPORTED_GRAPH"));
 						return nullptr;
 					}
-					if (FBlueprintEditorUtils::IsGraphReadOnly(Graph) || !IsWritableAnimPackage(Blueprint->GetOutermost()))
-					{
-						BuildErrorResponse(OutResponse, TEXT("Graph or Animation Blueprint package is read-only"), TEXT("READ_ONLY_GRAPH"));
-						return nullptr;
-					}
-					return Graph;
+					return CheckWireAccess(Graph);
 				}
 				BuildErrorResponse(OutResponse, TEXT("Graph GUID is stale or belongs to another Blueprint"), TEXT("GRAPH_NOT_FOUND"));
 				return nullptr;
@@ -273,12 +287,12 @@ namespace UEMCP
 			if (!Params.IsValid() || !Params->TryGetStringField(TEXT("graph_name"), GraphName) || GraphName.IsEmpty()
 				|| GraphName.Equals(TEXT("EventGraph"), ESearchCase::IgnoreCase))
 			{
-				UEdGraph* EventGraph = FindOrCreateEventGraph(Blueprint);
+				UEdGraph* EventGraph = FBlueprintEditorUtils::FindEventGraph(Blueprint);
 				if (!EventGraph)
 				{
 					BuildErrorResponse(OutResponse, TEXT("Failed to get event graph"), TEXT("NO_GRAPH"));
 				}
-				return EventGraph;
+				return CheckWireAccess(EventGraph);
 			}
 
 			UEdGraph* Graph = FindGraphByName(Blueprint, GraphName);
@@ -288,7 +302,7 @@ namespace UEMCP
 					FString::Printf(TEXT("Blueprint graph not found: %s"), *GraphName),
 					TEXT("GRAPH_NOT_FOUND"));
 			}
-			return Graph;
+			return CheckWireAccess(Graph);
 		}
 
 		TArray<TSharedPtr<FJsonValue>> PinsToJson(const UEdGraphNode* Node)
@@ -781,70 +795,313 @@ namespace UEMCP
 		 * add_blueprint_function_node pin-default coercion (Section 3.4).
 		 * Quietly skips pins not found (oracle warns then continues).
 		 */
-		void ApplyNodePinDefaults(UEdGraphNode* Node, UEdGraph* Graph,
-			const TSharedPtr<FJsonObject>& ParamsObj)
+		// The comment above describes the original reference behavior.
+		// A supplied default must describe a real input literal on the new node. Use
+		// K2's value/object/text representation so class and asset references are
+		// validated against their pin type as well as resolved by name.
+		// FParse::Value considers a named field present even when Atod silently
+		// converts its value to zero. Require each numeric token to parse in full
+		// before asking K2 to interpret vector, rotation, transform or color text.
+		bool HasFiniteNumericFields(FString Input, int32 MinCount, int32 MaxCount, const FString& AllowedKeys)
 		{
-			if (!Node || !ParamsObj.IsValid()) return;
-			const UEdGraphSchema_K2* K2Schema = Cast<const UEdGraphSchema_K2>(Graph ? Graph->GetSchema() : nullptr);
-
-			for (const auto& Param : ParamsObj->Values)
+			Input.TrimStartAndEndInline();
+			if (Input.StartsWith(TEXT("(")) && Input.EndsWith(TEXT(")")))
 			{
-				const FString PinName(*Param.Key);
-				const TSharedPtr<FJsonValue>& PinValue = Param.Value;
-				UEdGraphPin* Pin = FindPin(Node, PinName, EGPD_Input);
-				if (!Pin) continue;
+				Input = Input.Mid(1, Input.Len() - 2).TrimStartAndEnd();
+			}
+			static const FRegexPattern Field(TEXT(R"((?:([A-Za-z]+)\s*=\s*)?([+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?)[fF]?)"));
+			FRegexMatcher Matcher(Field, Input);
+			int32 End = 0;
+			int32 Count = 0;
+			TSet<FString> Keys;
+			while (Matcher.FindNext())
+			{
+				const FString Gap = Input.Mid(End, Matcher.GetMatchBeginning() - End);
+				const FString Key = Matcher.GetCaptureGroup(1).ToUpper();
+				// Positional components use commas. Named forms also admit e.g.
+				// "X=2 Y=3 Z=4" from FVector::ToString().
+				if (Count == 0 ? !Gap.IsEmpty() : !(Gap.TrimStartAndEnd() == TEXT(",") ||
+					(!Key.IsEmpty() && !Gap.IsEmpty() && Gap.TrimStartAndEnd().IsEmpty()))) return false;
+				if (!Key.IsEmpty())
+				{
+					if (Keys.Num() != Count || Keys.Contains(Key) || !AllowedKeys.Contains(TEXT("|") + Key + TEXT("|"))) return false;
+					Keys.Add(Key);
+				}
+				else if (!Keys.IsEmpty()) return false;
+				if (++Count > MaxCount || !FMath::IsFinite(FCString::Atod(*Matcher.GetCaptureGroup(2)))) return false;
+				End = Matcher.GetMatchEnding();
+			}
+			return End == Input.Len() && Count >= MinCount;
+		}
 
-				// Class reference — only meaningful when value is a string.
-				if (PinValue->Type == EJson::String && Pin->PinType.PinCategory == UEdGraphSchema_K2::PC_Class)
-				{
-					const FString ClassName = PinValue->AsString();
-					UClass* Class = UEMCP::ResolveClass(ClassName);
-					if (!Class)
-					{
-						Class = UEMCP::ResolveClass(FString::Printf(TEXT("/Script/Engine.%s"), *ClassName));
-					}
-					if (Class && K2Schema)
-					{
-						K2Schema->TrySetDefaultObject(*Pin, Class);
-					}
-					continue;
-				}
+		// The VM emits integers from decimal text. Resolve any explicit hex
+		// form and verify the target range before handing the literal to K2.
+		bool NormalizeIntegerText(FString& Text, const int64 Min, const int64 Max)
+		{
+			FString Digits = Text.TrimStartAndEnd();
+			const bool bNegative = Digits.RemoveFromStart(TEXT("-"));
+			if (!bNegative) Digits.RemoveFromStart(TEXT("+"));
+			const int32 Base = Digits.RemoveFromStart(TEXT("0x"), ESearchCase::IgnoreCase) ? 16 : 10;
+			if (Digits.IsEmpty()) return false;
+			uint64 Magnitude = 0;
+			const uint64 Limit = bNegative ? (uint64(0) - static_cast<uint64>(Min)) : static_cast<uint64>(Max);
+			for (const TCHAR Character : Digits)
+			{
+				if (!FChar::IsHexDigit(Character)) return false;
+				const uint64 Digit = FParse::HexDigit(Character);
+				if (Digit >= static_cast<uint64>(Base) || Digit > Limit || Magnitude > (Limit - Digit) / Base) return false;
+				Magnitude = Magnitude * Base + Digit;
+			}
+			const int64 Result = bNegative && Magnitude == Limit ? Min :
+				(bNegative ? -static_cast<int64>(Magnitude) : static_cast<int64>(Magnitude));
+			Text = LexToString(Result);
+			return true;
+		}
 
-				// Vector struct — array of 3 numbers → "(X=..,Y=..,Z=..)".
-				if (PinValue->Type == EJson::Array && Pin->PinType.PinCategory == UEdGraphSchema_K2::PC_Struct
-					&& Pin->PinType.PinSubCategoryObject == TBaseStructure<FVector>::Get())
-				{
-					const TArray<TSharedPtr<FJsonValue>>* Arr = nullptr;
-					if (PinValue->TryGetArray(Arr) && Arr && Arr->Num() == 3)
-					{
-						const float X = (*Arr)[0]->AsNumber();
-						const float Y = (*Arr)[1]->AsNumber();
-						const float Z = (*Arr)[2]->AsNumber();
-						Pin->DefaultValue = FString::Printf(TEXT("(X=%f,Y=%f,Z=%f)"), X, Y, Z);
-					}
-					continue;
-				}
+		bool PreparePinDefault(UEdGraphPin& Pin, const TSharedPtr<FJsonValue>& Value, const UEdGraphSchema_K2& Schema,
+			FString& Error)
+		{
+			const FName Category = Pin.PinType.PinCategory;
+			if (Pin.bDefaultValueIsIgnored || Pin.bDefaultValueIsReadOnly || Category == UEdGraphSchema_K2::PC_Exec)
+			{
+				Error = TEXT("This pin does not accept a literal");
+				return false;
+			}
 
-				// Scalar coercions by pin category.
-				if (Pin->PinType.PinCategory == UEdGraphSchema_K2::PC_Int)
+			FString Literal;
+			TObjectPtr<UObject> Object = nullptr;
+			FText Text;
+			if (Category == UEdGraphSchema_K2::PC_Class)
+			{
+				if (Value->Type != EJson::String)
 				{
-					Pin->DefaultValue = FString::FromInt(FMath::RoundToInt(PinValue->AsNumber()));
+					Error = TEXT("Expected a class name or path");
+					return false;
 				}
-				else if (Pin->PinType.PinCategory == UEdGraphSchema_K2::PC_Float
-					|| Pin->PinType.PinCategory == UEdGraphSchema_K2::PC_Real)
+				const FString Identifier = Value->AsString();
+				if (!Identifier.IsEmpty() && !Identifier.Equals(TEXT("None"), ESearchCase::IgnoreCase))
 				{
-					Pin->DefaultValue = FString::SanitizeFloat(PinValue->AsNumber());
-				}
-				else if (Pin->PinType.PinCategory == UEdGraphSchema_K2::PC_Boolean)
-				{
-					Pin->DefaultValue = PinValue->AsBool() ? TEXT("true") : TEXT("false");
-				}
-				else if (PinValue->Type == EJson::String)
-				{
-					Pin->DefaultValue = PinValue->AsString();
+					Object = ResolveBlueprintTargetClassByName(Identifier);
+					if (!Object)
+					{
+						Error = TEXT("Unknown class ") + Identifier;
+						return false;
+					}
 				}
 			}
+			else
+			{
+				FString Input;
+				const bool bPlainByte = Category == UEdGraphSchema_K2::PC_Byte && !Pin.PinType.PinSubCategoryObject.Get();
+				const bool bInteger = bPlainByte || Category == UEdGraphSchema_K2::PC_Int || Category == UEdGraphSchema_K2::PC_Int64;
+				if (Pin.PinType.PinSubCategoryObject == TBaseStructure<FVector>::Get())
+				{
+					FVector Vector;
+					if (Value->Type == EJson::Array)
+					{
+						const TArray<TSharedPtr<FJsonValue>>& XYZ = Value->AsArray();
+						if (XYZ.Num() != 3 || XYZ[0]->Type != EJson::Number || XYZ[1]->Type != EJson::Number || XYZ[2]->Type != EJson::Number)
+						{
+							Error = TEXT("Expected three numeric vector components");
+							return false;
+						}
+						Vector = FVector(XYZ[0]->AsNumber(), XYZ[1]->AsNumber(), XYZ[2]->AsNumber());
+					}
+					else if (Value->Type != EJson::String || !HasFiniteNumericFields(Value->AsString(), 3, 3, TEXT("|X|Y|Z|")) ||
+						(!FDefaultValueHelper::ParseVector(Value->AsString(), Vector) && !Vector.InitFromString(Value->AsString())))
+					{
+						Error = TEXT("Expected a vector literal");
+						return false;
+					}
+					Input = FString::Printf(TEXT("%.17g,%.17g,%.17g"), Vector.X, Vector.Y, Vector.Z);
+				}
+				else if (bInteger && (Value->Type == EJson::Number || Value->Type == EJson::String))
+				{
+					if (Value->Type == EJson::Number)
+					{
+						constexpr double MaxSafeInteger = 9007199254740991.0; // 2^53 - 1
+						const double Number = Value->AsNumber();
+						if (!FMath::IsFinite(Number) || FMath::Abs(Number) > MaxSafeInteger || Number != static_cast<int64>(Number))
+						{
+							Error = TEXT("Expected a safe integral JSON number; use an integer string for larger values");
+							return false;
+						}
+						Input = LexToString(static_cast<int64>(Number));
+					}
+					else
+					{
+						Input = Value->AsString();
+					}
+					const int64 Min = bPlainByte ? 0 : (Category == UEdGraphSchema_K2::PC_Int ? MIN_int32 : MIN_int64);
+					const int64 Max = bPlainByte ? 255 : (Category == UEdGraphSchema_K2::PC_Int ? MAX_int32 : MAX_int64);
+					if (!NormalizeIntegerText(Input, Min, Max))
+					{
+						Error = TEXT("Expected an integer within the pin's range");
+						return false;
+					}
+				}
+				else if (Value->Type == EJson::String)
+				{
+					Input = Value->AsString();
+					const UObject* StructType = Pin.PinType.PinSubCategoryObject.Get();
+					if (!Input.IsEmpty() && Category == UEdGraphSchema_K2::PC_Struct)
+					{
+						bool bValid = true;
+						if (StructType == TVariantStructure<FVector3f>::Get() || StructType == TBaseStructure<FRotator>::Get())
+						{
+							bValid = HasFiniteNumericFields(Input, 3, 3, StructType == TBaseStructure<FRotator>::Get() ? TEXT("|X|Y|Z|P|R|PITCH|YAW|ROLL|") : TEXT("|X|Y|Z|"));
+						}
+						else if (StructType == TBaseStructure<FLinearColor>::Get())
+						{
+							bValid = HasFiniteNumericFields(Input, 3, 4, TEXT("|R|G|B|A|"));
+						}
+						else if (StructType == TBaseStructure<FTransform>::Get())
+						{
+							TArray<FString> Parts;
+							Input.ParseIntoArray(Parts, TEXT("|"), false);
+							bValid = Parts.Num() == 3 && HasFiniteNumericFields(Parts[0], 3, 3, TEXT("|X|Y|Z|")) &&
+								HasFiniteNumericFields(Parts[1], 3, 3, TEXT("|X|Y|Z|P|R|PITCH|YAW|ROLL|")) && HasFiniteNumericFields(Parts[2], 3, 3, TEXT("|X|Y|Z|"));
+						}
+						if (!bValid)
+						{
+							Error = TEXT("Expected finite numeric components");
+							return false;
+						}
+					}
+				if (Category == UEdGraphSchema_K2::PC_Real || Category == UEdGraphSchema_K2::PC_Float)
+					{
+					if (!HasFiniteNumericFields(Input, 1, 1, TEXT("")))
+					{
+						Error = TEXT("Expected a finite number");
+						return false;
+					}
+					const bool bSinglePrecision = Category == UEdGraphSchema_K2::PC_Float ||
+						Pin.PinType.PinSubCategory == UEdGraphSchema_K2::PC_Float;
+					const double Number = FCString::Atod(*Input);
+					if (!IsRepresentableRealPinValue(Number, bSinglePrecision))
+					{
+						Error = TEXT("Numeric literal exceeds the pin's finite range");
+						return false;
+					}
+					if (Number == 0.0)
+					{
+						// Once decimal text underflows double, a cast alone cannot distinguish it from a literal zero.
+						for (const TCHAR Digit : Input)
+						{
+							if (Digit == TCHAR('e') || Digit == TCHAR('E')) break;
+							if (Digit >= TCHAR('1') && Digit <= TCHAR('9'))
+							{
+								Error = TEXT("Nonzero numeric literal underflows the pin's range");
+								return false;
+							}
+						}
+					}
+					}
+					if (Category == UEdGraphSchema_K2::PC_Boolean && !Input.Equals(TEXT("true"), ESearchCase::IgnoreCase)
+						&& !Input.Equals(TEXT("false"), ESearchCase::IgnoreCase) && Input != TEXT("0") && Input != TEXT("1"))
+					{
+						Error = TEXT("Expected a boolean");
+						return false;
+					}
+				}
+				else
+				{
+					FString Code;
+					if (!FormatLiteralForPinCategory(Pin.PinType, Value, Input, Error, Code)) return false;
+				}
+				Schema.GetPinDefaultValuesFromString(Pin.PinType, Pin.GetOwningNode(), Input, Literal, Object, Text, false);
+				if ((Category == UEdGraphSchema_K2::PC_Object || Category == UEdGraphSchema_K2::PC_Interface)
+					&& !Input.IsEmpty() && !Input.Equals(TEXT("None"), ESearchCase::IgnoreCase) && !Object)
+				{
+					Error = TEXT("Unknown object ") + Input;
+					return false;
+				}
+			}
+			Error = Schema.IsPinDefaultValid(&Pin, Literal, Object, Text);
+			if (!Error.IsEmpty()) return false;
+			Pin.DefaultValue = Literal;
+			Pin.DefaultObject = Object;
+			Pin.DefaultTextValue = Text;
+			return true;
 		}
+
+		bool PublishWriterNode(UK2Node* Node, UBlueprint* Blueprint, UEdGraph* Graph, const TSharedPtr<FJsonObject>& Params,
+			TSharedPtr<FJsonObject>& OutResponse)
+		{
+			// The outer graph supplies the Blueprint context for pin allocation and
+			// schema validation. The node becomes a graph member only after every
+			// requested literal is valid.
+			Node->CreateNewGuid();
+			Node->PostPlacedNewNode();
+			Node->AllocateDefaultPins();
+			TMap<FName, FString> ExpectedDefaults;
+			if (Params->HasField(TEXT("params")))
+			{
+				const TSharedPtr<FJsonObject>* Defaults = nullptr;
+				if (!Params->TryGetObjectField(TEXT("params"), Defaults) || !Defaults || !Defaults->IsValid())
+				{
+					BuildErrorResponse(OutResponse, TEXT("Expected an object mapping input pin names to literals"), TEXT("INVALID_PIN_DEFAULT"));
+					Node->MarkAsGarbage();
+					return false;
+				}
+				const UEdGraphSchema_K2* Schema = Cast<UEdGraphSchema_K2>(Graph->GetSchema());
+				for (const auto& Pair : (*Defaults)->Values)
+				{
+					UEdGraphPin* Pin = Node->FindPin(FName(*Pair.Key), EGPD_Input);
+					if (!Pin)
+					{
+						TArray<FString> Names;
+						for (const UEdGraphPin* Input : Node->Pins)
+						{
+							if (Input && Input->Direction == EGPD_Input && Input->PinType.PinCategory != UEdGraphSchema_K2::PC_Exec)
+								Names.Add(Input->PinName.ToString());
+						}
+						BuildErrorResponse(OutResponse, FString::Printf(TEXT("Unknown input '%s'. Available inputs: %s"),
+							*Pair.Key, *FString::Join(Names, TEXT(", "))), TEXT("PIN_NOT_FOUND"));
+						Node->MarkAsGarbage();
+						return false;
+					}
+					FString Error;
+					if (!Schema || ExpectedDefaults.Contains(Pin->PinName) || !PreparePinDefault(*Pin, Pair.Value, *Schema, Error))
+					{
+						if (!Schema) Error = TEXT("Expected a K2 graph schema");
+						else if (ExpectedDefaults.Contains(Pin->PinName)) Error = TEXT("Input pin was supplied twice");
+						BuildErrorResponse(OutResponse, FString::Printf(TEXT("Invalid default for input '%s': %s"), *Pair.Key, *Error),
+							TEXT("INVALID_PIN_DEFAULT"));
+						Node->MarkAsGarbage();
+						return false;
+					}
+					ExpectedDefaults.Add(Pin->PinName, Pin->GetDefaultAsString());
+				}
+			}
+			// Resolve inputs afresh across notifications. A node can change its pins
+			// in response to another default, including a class picker.
+			for (const auto& Pair : ExpectedDefaults)
+			{
+				if (UEdGraphPin* Pin = Node->FindPin(Pair.Key, EGPD_Input))
+				{
+					Node->PinDefaultValueChanged(Pin);
+				}
+			}
+			for (const auto& Pair : ExpectedDefaults)
+			{
+				const UEdGraphPin* Pin = Node->FindPin(Pair.Key, EGPD_Input);
+				if (!Pin || Pin->GetDefaultAsString() != Pair.Value)
+				{
+					BuildErrorResponse(OutResponse, FString::Printf(TEXT("Node did not retain the requested default for '%s'"), *Pair.Key.ToString()),
+						TEXT("INVALID_PIN_DEFAULT"));
+					Node->MarkAsGarbage();
+					return false;
+				}
+			}
+			FScopedTransaction Transaction(NSLOCTEXT("UEMCP", "AddBlueprintWriterNode", "Add Blueprint node"));
+			Blueprint->Modify();
+			Graph->Modify();
+			Graph->AddNode(Node);
+			FBlueprintEditorUtils::MarkBlueprintAsModified(Blueprint);
+			return true;
+		}
+
 
 		/**
 		 * Find an existing UK2Node_Event in Graph whose member name matches EventName.
@@ -2049,7 +2306,7 @@ namespace UEMCP
 			// flag-based read of what the editor's Override list offers.
 			if (ParentFunction->HasAnyFunctionFlags(FUNC_BlueprintEvent))
 			{
-				UEdGraph* EventGraph = FindOrCreateEventGraph(Blueprint);
+				UEdGraph* EventGraph = FBlueprintEditorUtils::FindEventGraph(Blueprint);
 				if (!EventGraph)
 				{
 					BuildErrorResponse(OutResponse, TEXT("Blueprint has no event graph"), TEXT("NO_GRAPH"));
@@ -2161,29 +2418,18 @@ namespace UEMCP
 			UEdGraph* EventGraph = ResolveTargetGraph(Blueprint, Params, OutResponse);
 			if (!EventGraph) return;
 
-			// Resolve target class — try as-is, U-prefixed, common Engine paths.
-			UClass* TargetClass = nullptr;
-			if (!Target.IsEmpty())
+			UClass* SearchClass = Blueprint->GeneratedClass.Get();
+			if (Params->HasField(TEXT("target")))
 			{
-				TArray<FString> Candidates;
-				Candidates.Add(Target);
-				if (!Target.StartsWith(TEXT("U")))
+				SearchClass = ResolveBlueprintTargetClassByName(Target);
+				if (!SearchClass)
 				{
-					Candidates.Add(TEXT("U") + Target);
-				}
-				Candidates.Add(FString::Printf(TEXT("/Script/Engine.%s"), *Target));
-				for (const FString& Candidate : Candidates)
-				{
-					TargetClass = UEMCP::ResolveClass(Candidate);
-					if (TargetClass) break;
+					BuildErrorResponse(OutResponse, FString::Printf(TEXT("Unknown target class '%s'"), *Target),
+						TEXT("TARGET_CLASS_NOT_FOUND"));
+					return;
 				}
 			}
-
-			// Resolve the UFunction — walk the target class hierarchy or the BP class.
 			UFunction* Function = nullptr;
-			// Blueprint->GeneratedClass is TSubclassOf<UObject> in UE 5.6;
-			// .Get() to UClass* so the ternary types match TargetClass (UClass*).
-			UClass* SearchClass = TargetClass ? TargetClass : Blueprint->GeneratedClass.Get();
 			while (SearchClass && !Function)
 			{
 				Function = SearchClass->FindFunctionByName(*FunctionName);
@@ -2210,6 +2456,7 @@ namespace UEMCP
 				return;
 			}
 
+			if (!CanStartGraphTransaction(OutResponse)) return;
 			UK2Node_CallFunction* FuncNode = NewObject<UK2Node_CallFunction>(EventGraph, NAME_None, RF_Transactional);
 			if (!FuncNode)
 			{
@@ -2219,20 +2466,10 @@ namespace UEMCP
 			FuncNode->FunctionReference.SetExternalMember(Function->GetFName(), Function->GetOwnerClass());
 			FuncNode->NodePosX = NodePos.X;
 			FuncNode->NodePosY = NodePos.Y;
-			EventGraph->AddNode(FuncNode);
-			FuncNode->CreateNewGuid();
-			FuncNode->PostPlacedNewNode();
-			FuncNode->AllocateDefaultPins();
-
-			// Apply pin defaults if a `params` object was provided.
-			const TSharedPtr<FJsonObject>* PinDefaults = nullptr;
-			if (Params->TryGetObjectField(TEXT("params"), PinDefaults) && PinDefaults && PinDefaults->IsValid())
-			{
-				ApplyNodePinDefaults(FuncNode, EventGraph, *PinDefaults);
-			}
-
-			FBlueprintEditorUtils::MarkBlueprintAsModified(Blueprint);
-			BuildSuccessResponse(OutResponse, NodeResultToJson(FuncNode, EventGraph));
+			if (!PublishWriterNode(FuncNode, Blueprint, EventGraph, Params, OutResponse)) return;
+			TSharedPtr<FJsonObject> Result = NodeResultToJson(FuncNode, EventGraph);
+			Result->SetStringField(TEXT("resolved_function"), Function->GetPathName());
+			BuildSuccessResponse(OutResponse, Result);
 		}
 
 		// ── 11. add_blueprint_variable ────────────────────────────────────────────
@@ -2331,11 +2568,22 @@ namespace UEMCP
 
 			if (UEdGraph* Existing = FindGraphByName(Blueprint, FunctionName))
 			{
+				if (!Blueprint->FunctionGraphs.Contains(Existing) || !Existing->GetSchema() ||
+					Existing->GetSchema()->GetGraphType(Existing) != GT_Function)
+				{
+					BuildErrorResponse(OutResponse, FString::Printf(TEXT("'%s' already names a non-function graph"), *Existing->GetName()),
+						TEXT("GRAPH_KIND_MISMATCH"));
+					return;
+				}
 				TArray<UK2Node_FunctionEntry*> EntryNodes;
 				Existing->GetNodesOfClass<UK2Node_FunctionEntry>(EntryNodes);
-				TSharedPtr<FJsonObject> Result = EntryNodes.Num() > 0
-					? NodeResultToJson(EntryNodes[0], Existing)
-					: MakeShared<FJsonObject>();
+				if (EntryNodes.Num() != 1)
+				{
+					BuildErrorResponse(OutResponse, FString::Printf(TEXT("Function graph '%s' requires exactly one entry node"), *Existing->GetName()),
+						TEXT("INVALID_FUNCTION_ENTRY"));
+					return;
+				}
+				TSharedPtr<FJsonObject> Result = NodeResultToJson(EntryNodes[0], Existing);
 				Result->SetStringField(TEXT("function_name"), FunctionName);
 				Result->SetStringField(TEXT("graph_name"), Existing->GetName());
 				Result->SetBoolField(TEXT("created"), false);
@@ -2435,6 +2683,7 @@ namespace UEMCP
 			if (!Graph) return;
 			const FVector2D NodePos = ReadVector2DOrZero(Params, TEXT("node_position"));
 
+			if (!CanStartGraphTransaction(OutResponse)) return;
 			UK2Node_VariableSet* SetNode = NewObject<UK2Node_VariableSet>(Graph, NAME_None, RF_Transactional);
 			if (!SetNode)
 			{
@@ -2444,19 +2693,7 @@ namespace UEMCP
 			SetNode->VariableReference.SetSelfMember(FName(*VarName));
 			SetNode->NodePosX = NodePos.X;
 			SetNode->NodePosY = NodePos.Y;
-			Graph->AddNode(SetNode);
-			SetNode->CreateNewGuid();
-			SetNode->PostPlacedNewNode();
-			SetNode->AllocateDefaultPins();
-			SetNode->ReconstructNode();
-
-			const TSharedPtr<FJsonObject>* PinDefaults = nullptr;
-			if (Params->TryGetObjectField(TEXT("params"), PinDefaults) && PinDefaults && PinDefaults->IsValid())
-			{
-				ApplyNodePinDefaults(SetNode, Graph, *PinDefaults);
-			}
-
-			FBlueprintEditorUtils::MarkBlueprintAsModified(Blueprint);
+			if (!PublishWriterNode(SetNode, Blueprint, Graph, Params, OutResponse)) return;
 			BuildSuccessResponse(OutResponse, NodeResultToJson(SetNode, Graph));
 		}
 
@@ -2746,7 +2983,7 @@ namespace UEMCP
 			bool bCompile = false;
 			Params->TryGetBoolField(TEXT("compile"), bCompile);
 
-			UEdGraph* EventGraph = FindOrCreateEventGraph(Blueprint);
+			UEdGraph* EventGraph = FBlueprintEditorUtils::FindEventGraph(Blueprint);
 			if (!EventGraph)
 			{
 				BuildErrorResponse(OutResponse, TEXT("Failed to get event graph"), TEXT("NO_GRAPH"));
@@ -3142,7 +3379,7 @@ namespace UEMCP
 				return;
 			}
 
-			UEdGraph* EventGraph = ResolveTargetGraph(Blueprint, Params, OutResponse, true);
+			UEdGraph* EventGraph = ResolveTargetGraph(Blueprint, Params, OutResponse, EGraphTarget::Wire);
 			if (!EventGraph) return;
 
 			UEdGraphNode* SourceNode = FindNodeByGuid(EventGraph, SourceId);
@@ -3324,11 +3561,38 @@ namespace UEMCP
 			UBlueprint* Blueprint = ResolveBlueprint(Params, OutResponse);
 			if (!Blueprint) return;
 
-			FString NodeId, PinName;
-			if (!Params->TryGetStringField(TEXT("node_id"), NodeId) || NodeId.IsEmpty()
-				|| !Params->TryGetStringField(TEXT("pin"), PinName) || PinName.IsEmpty())
+			FString NodeId, NodeName, GraphName, PinName;
+			const bool bByName = Params->HasField(TEXT("node_name"));
+			if (bByName == Params->HasField(TEXT("node_id")))
 			{
-				BuildErrorResponse(OutResponse, TEXT("Missing required parameter (node_id, pin)"), TEXT("MISSING_PARAMS"));
+				BuildErrorResponse(OutResponse, TEXT("Supply exactly one of node_id or node_name"), TEXT("INVALID_NODE_SELECTOR"));
+				return;
+			}
+			if (bByName)
+			{
+				if (!Params->TryGetStringField(TEXT("node_name"), NodeName) || NodeName.IsEmpty() ||
+					!Params->TryGetStringField(TEXT("graph_name"), GraphName) || GraphName.IsEmpty())
+				{
+					BuildErrorResponse(OutResponse, TEXT("node_name requires an exact object name and graph_name"), TEXT("MISSING_PARAMS"));
+					return;
+				}
+			}
+			else if (!Params->TryGetStringField(TEXT("node_id"), NodeId) || NodeId.IsEmpty())
+			{
+				BuildErrorResponse(OutResponse, TEXT("Expected a non-empty node_id"), TEXT("MISSING_PARAMS"));
+				return;
+			}
+
+			const bool bInspectAllPins = !Params->HasField(TEXT("pin"));
+			if (!bInspectAllPins && (!Params->TryGetStringField(TEXT("pin"), PinName) || PinName.IsEmpty()))
+			{
+				BuildErrorResponse(OutResponse, TEXT("Expected a non-empty pin name"), TEXT("MISSING_PARAMS"));
+				return;
+			}
+			if (bInspectAllPins && (Params->HasField(TEXT("direction")) || Params->HasField(TEXT("target_node_id")) ||
+				Params->HasField(TEXT("target_pin")) || Params->HasField(TEXT("target_direction"))))
+			{
+				BuildErrorResponse(OutResponse, TEXT("A pin name is required with link filters"), TEXT("MISSING_PARAMS"));
 				return;
 			}
 
@@ -3341,13 +3605,37 @@ namespace UEMCP
 				return;
 			}
 
-			UEdGraph* Graph = ResolveTargetGraph(Blueprint, Params, OutResponse);
+			UEdGraph* Graph = ResolveTargetGraph(Blueprint, Params, OutResponse, EGraphTarget::Read);
 			if (!Graph) return;
 
-			UEdGraphNode* Node = FindNodeByGuid(Graph, NodeId);
+			UEdGraphNode* Node = nullptr;
+			if (bByName)
+			{
+				for (UEdGraphNode* Candidate : Graph->Nodes)
+				{
+					if (Candidate && Candidate->GetName().Equals(NodeName, ESearchCase::CaseSensitive))
+					{
+						Node = Candidate;
+						break;
+					}
+				}
+			}
+			else
+			{
+				Node = FindNodeByGuid(Graph, NodeId);
+			}
 			if (!Node)
 			{
 				BuildErrorResponse(OutResponse, TEXT("Node not found"), TEXT("NODE_NOT_FOUND"));
+				return;
+			}
+
+			if (bInspectAllPins)
+			{
+				TSharedPtr<FJsonObject> Result = NodeResultToJson(Node, Graph);
+				Result->SetStringField(TEXT("node_name"), Node->GetName());
+				Result->SetStringField(TEXT("topology_revision"), GraphTopologyRevision(Graph));
+				BuildSuccessResponse(OutResponse, Result);
 				return;
 			}
 
@@ -3405,7 +3693,7 @@ namespace UEMCP
 
 			TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
 			Result->SetStringField(TEXT("graph_name"), Graph->GetName());
-			Result->SetStringField(TEXT("node_id"), NodeId);
+			Result->SetStringField(TEXT("node_id"), Node->NodeGuid.ToString());
 			Result->SetStringField(TEXT("pin"), PinName);
 			Result->SetStringField(TEXT("direction"), PinDirectionToString(Pin->Direction));
 			Result->SetStringField(TEXT("topology_revision"), GraphTopologyRevision(Graph));
@@ -3472,7 +3760,9 @@ namespace UEMCP
 				return;
 			}
 
-			UEdGraph* Graph = ResolveTargetGraph(Blueprint, Params, OutResponse);
+			bool bDryRun = false;
+			Params->TryGetBoolField(TEXT("dry_run"), bDryRun);
+			UEdGraph* Graph = ResolveTargetGraph(Blueprint, Params, OutResponse, bDryRun ? EGraphTarget::WirePreview : EGraphTarget::Wire);
 			if (!Graph) return;
 
 			UEdGraphNode* Node = FindNodeByGuid(Graph, NodeId);
@@ -3557,9 +3847,6 @@ namespace UEMCP
 				BuildErrorResponse(OutResponse, TEXT("Requested pin link was not found"), TEXT("LINK_NOT_FOUND"));
 				return;
 			}
-
-			bool bDryRun = false;
-			Params->TryGetBoolField(TEXT("dry_run"), bDryRun);
 
 			const auto* Schema = Cast<UEdGraphSchema_K2>(Graph->GetSchema());
 			auto DropsOtherWires = [&](UEdGraphPin* Endpoint)

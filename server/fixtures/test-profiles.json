@@ -193,7 +193,14 @@
           "UEMCP.BlueprintHandlers.ClassPinConnections",
           "UEMCP.BlueprintHandlers.AssignmentSavedFailureIsolation",
           "UEMCP.BlueprintHandlers.StateNamingIsolation",
-          "UEMCP.BlueprintHandlers.FunctionConnectionUndo"
+          "UEMCP.BlueprintHandlers.GraphNodePinInspection",
+          "UEMCP.BlueprintHandlers.FunctionConnectionUndo",
+          "UEMCP.BlueprintHandlers.WriterPinDefaults",
+          "UEMCP.BlueprintHandlers.FunctionGraphIdentity",
+          "UEMCP.BlueprintHandlers.PawnGraphGuidWiring",
+          "UEMCP.BlueprintHandlers.ReadOnlyGraphWiring",
+          "UEMCP.BlueprintHandlers.PawnFixtureEarlyReturn",
+          "UEMCP.GraphActions.AssetPlacement"
         ]
       }]
     },
@@ -430,8 +437,8 @@
             "owned data: empty traversal at requested depth 1 reports cap 1",
             "owned data: empty traversal at requested depth 500 reports cap 500",
             "owned data: empty traversal at requested depth 501 reports cap 500",
-            "owned data: raw entry-point GUID feeds data query and echoes oracle canonical identity",
-            "owned data: raw inspected call GUID echoes its distinct oracle canonical identity",
+            "owned data: entry-point and historical file-order GUIDs resolve the oracle event",
+            "owned data: inspected and historical file-order GUIDs resolve the oracle call",
             "owned data: unknown graph returns exact unavailable envelope",
             "owned data: unknown node returns exact unavailable envelope",
             "owned data: missing asset_path is rejected after valid baseline",
@@ -539,8 +546,8 @@
             "owned data: empty traversal at requested depth 1 reports cap 1",
             "owned data: empty traversal at requested depth 500 reports cap 500",
             "owned data: empty traversal at requested depth 501 reports cap 500",
-            "owned data: raw entry-point GUID feeds data query and echoes oracle canonical identity",
-            "owned data: raw inspected call GUID echoes its distinct oracle canonical identity",
+            "owned data: entry-point and historical file-order GUIDs resolve the oracle event",
+            "owned data: inspected and historical file-order GUIDs resolve the oracle call",
             "owned data: unknown graph returns exact unavailable envelope",
             "owned data: unknown node returns exact unavailable envelope",
             "owned data: missing asset_path is rejected after valid baseline",

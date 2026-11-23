@@ -1,5 +1,6 @@
 // Copyright Noah Butcher. All Rights Reserved.
 #include "MCPCommandRegistry.h"
+#include "GraphActionAuthoring.h"
 #include "MCPResponseBuilder.h"
 #include "MCPThreadMarshal.h"
 #include "Logging/LogMacros.h"
@@ -190,6 +191,7 @@ namespace UEMCP
 		// every wire-type registers a `not_implemented` envelope so live calls
 		// surface loudly rather than as UNKNOWN_COMMAND.
 		RegisterAnimationHandlers(*this);
+		GraphActionAuthoring::Register(*this);
 		RegisterMaterialsHandlers(*this);
 		RegisterInputAndPieHandlers(*this);
 		RegisterGeometryHandlers(*this);

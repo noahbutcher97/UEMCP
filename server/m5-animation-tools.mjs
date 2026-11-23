@@ -1,7 +1,7 @@
 // M5 animation toolset — montage mutations on TCP:55558.
 //
 // Ships 3 not-shipped tools per docs/handoffs/m5-animation-materials.md:
-//   create_montage, add_montage_section, add_montage_notify
+//   create_montage, add_montage_section, set_montage_next_section, add_montage_notify
 //
 // Disposition for the 4th (get_audio_asset_info) per D101 (v):
 // SUPERSEDED-as-offline. yaml line 746-747 explicitly marks it
@@ -48,7 +48,7 @@ export const M5_ANIMATION_SCHEMAS = {
   },
 
   add_montage_section: {
-    description: 'Append a named section to an existing UAnimMontage at a specified time. Refuses to overwrite an existing section by name (loud failure preferred over the legacy oracle\'s silent-overwrite).',
+    description: 'Add a uniquely named section at an unoccupied time before the animation ends. Use set_montage_next_section to author a playback route.',
     schema: {
       asset_path:   z.string().describe('Montage asset path'),
       section_name: z.string().describe('Section name (must be unique within montage)'),
@@ -57,8 +57,18 @@ export const M5_ANIMATION_SCHEMAS = {
     isReadOp: false,
   },
 
+  set_montage_next_section: {
+    description: 'Set the saved outgoing playback link for one montage section. An empty destination ends the route. Read get_montage_full to inspect section names and links, then save the asset when ready.',
+    schema: {
+      asset_path: z.string().describe('Montage asset path'),
+      section_name: z.string().min(1).describe('Existing source section'),
+      next_section: z.string().describe('Existing destination section, including self for a loop, or an empty string to end playback'),
+    },
+    isReadOp: false,
+  },
+
   add_montage_notify: {
-    description: 'Append a UAnimNotify or UAnimNotifyState to a montage at a specified time. Stateful (UAnimNotifyState) gets a default 0.1s duration; UAnimNotify is instantaneous. Resolves notify_class by full path, /Script/Engine prefix, or short-name search across loaded classes.',
+    description: 'Append a UAnimNotify or UAnimNotifyState to a montage at a specified time. Instantaneous cues may be placed at the last animation time. Blend-out can suppress late callbacks. A state and its full default 0.1s duration must fit. Resolves notify_class by full path, /Script/Engine prefix, or short-name search across loaded classes.',
     schema: {
       asset_path:    z.string().describe('Montage asset path'),
       notify_class:  z.string().describe('Notify class name — short name (e.g. "AnimNotify_PlaySound") or fully qualified path'),

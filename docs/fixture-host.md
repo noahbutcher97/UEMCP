@@ -119,14 +119,14 @@ This does not qualify live socket/MCP sessions, renderer/UI behavior, all native
 tests, or BuildPlugin packaging. The one-case `native-smoke` profile remains
 available separately; neither profile replaces retained consumer coverage.
 
-The `native-blueprint` profile requires exactly fifteen cases: three
-`UEMCP.BlueprintHelpers.*` registrations (PinTypeToJson, VariableDefaults,
-LiteralDefaults) and twelve `UEMCP.BlueprintHandlers.*` registrations
-(AddVariableAssignment, AddTimer, DisconnectPin, AssignmentVariableKind,
-AssignmentExecFrom, DisconnectPinEdges, CompilePaths, TimerFailures,
-GhostBeginPlayEnabled, EventNodeGhostSites, AssignmentCompileFailed,
-CreateBlueprintParents). After
-building a fresh source-only stage, run:
+The `native-blueprint` profile runs 26 cases in one editor. Its three Blueprint
+helper tests, 22 Blueprint handler tests and `UEMCP.GraphActions.AssetPlacement`
+are listed in the [profile manifest](../server/fixtures/test-profiles.json).
+It covers GUID wiring on a pawn Event Graph and retrying an asset-backed placement
+through the native command registry. `PawnGraphGuidWiring` checks that the pawn's
+edits stay in its private Undo history and its Blueprint is collected at teardown.
+`PawnFixtureEarlyReturn` interrupts an edit with a missing graph and checks that
+an unrelated edit can still be redone. To replay the profile, build a fresh owned stage and run
 
 ```powershell
 node server/prepare-fixture-host.mjs --output-root $stage --native --test-profile native-blueprint --timeout-ms 900000
@@ -136,10 +136,12 @@ The helpers exercise native pin/default conversion. Handler cases dispatch throu
 `FMCPCommandRegistry` and inspect real in-memory graph mutations and compilation
 outcomes under NullRHI. An expected compilation failure asserted by a successful
 native test remains valid; an Automation Error event on a Success record fails
-the required profile. All fifteen full names must run exactly once, with fresh
+the required profile. Each listed full name must run exactly once, with fresh
 source-bound evidence and a successful process exit.
 
-No saved fixture is required (`fixturePaths: []`). The handlers create unsaved
+The profile has no repository-owned saved fixture (`fixturePaths: []`). Asset
+placement uses the editor installation's `Tutorial_Walk_Fwd` sequence and
+`SkeletalCube_Skeleton` for its compatible and incompatible controls. The handlers create unsaved
 packages under `/Game/__UEMCPTests/`; their teardown is best effort within a
 disposable process, not a guarantee of complete object reclamation after every
 early return. Use a fresh owned host/process, retain source and lifecycle checks,
@@ -341,3 +343,34 @@ On 2026-11-07 the UE 5.8.3 Win64 owned host compiled successfully; both focused
 cases and all 15 native-blueprint cases passed. The first attempted focused run
 was refused by port preflight while the Node rotation was active; the serial
 rerun passed. Keep port-using Node suites and native execution sequential.
+
+## Request key identity and pawn teardown qualification (2026-11-22)
+
+| Installed engine (Win64) | Blueprint and transport native tests | Live framed and legacy request checks |
+| --- | --- | --- |
+| UE 5.3.2 CL29314046 | 33/33 | 18/18 |
+| UE 5.6.1 CL44394996 | 33/33 | 18/18 |
+| UE 5.8.4 CL58902052 | 33/33 | 18/18 |
+
+All three engines previously collapsed distinct sibling names such as `Ax` and
+`ax`. The live client received an actionable `MALFORMED_REQUEST` for those
+names and for an embedded NUL in a member name. The next corrected request
+succeeded. Exact duplicates retain their last value. Separate objects can use
+different spellings. The raw and Unicode-escaped pair `Äx` and `äx` remained
+distinct on all three engines. [Request contract](specs/architecture.md)
+
+On UE 5.3.2 the old pawn wiring test added four entries to the editor Undo queue
+and left the source node referenced. The new tests verified private transaction
+ownership, Blueprint collection on success and early return, and preservation
+of an unrelated redo. Five fresh content-only editor processes each passed the
+original nine-case suite using the same verified project-built plugin DLL.
+The earlier packaged crash's exact UObject remains unidentified. The retained
+minidump lacks full process memory and the matching engine debug symbols were
+unavailable. A new UAT package was outside this replay.
+
+Codex CLI 0.171.0 also edited one owned Actor Blueprint on
+UE 5.3.2. It corrected the imported pin name before sending it and recovered
+from an editor identity refusal. A fresh editor found exactly one new integer
+addition node with input defaults 4 and 7. Only the requested package changed.
+The wire checks exercised the key refusal directly. UE 5.7, other providers
+and human sessions were unexercised in this pass.

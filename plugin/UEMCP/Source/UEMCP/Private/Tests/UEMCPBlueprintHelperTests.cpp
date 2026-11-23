@@ -248,13 +248,27 @@ bool FUEMCPBlueprintHelpersLiteralDefaultsTest::RunTest(const FString& Parameter
 	TestTrue(TEXT("int literal accepted"),
 		UEMCP::FormatLiteralForPinCategory(MakePinType(UEdGraphSchema_K2::PC_Int), JsonNumber(4.6), Default, Error, Code));
 	TestEqual(TEXT("int literal rounds"), Default, FString(TEXT("5")));
+	const FEdGraphPinType IntPin = MakePinType(UEdGraphSchema_K2::PC_Int);
+	TestTrue(TEXT("largest rounded int32 accepted"), UEMCP::FormatLiteralForPinCategory(
+		IntPin, JsonNumber(2147483647.4), Default, Error, Code));
+	TestEqual(TEXT("largest rounded value"), Default, FString(TEXT("2147483647")));
+	const double BelowHalf = 0.49999999999999994;
+	TestTrue(TEXT("input immediately below half accepted"), UEMCP::FormatLiteralForPinCategory(
+		IntPin, JsonNumber(BelowHalf), Default, Error, Code));
+	TestEqual(TEXT("near-half assignment keeps Unreal rounding"), Default, FString::FromInt(static_cast<int32>(FMath::RoundToInt(BelowHalf))));
+	for (const double Number : { 2147483647.5, -2147483648.6, 1.e100 })
+	{
+		TestFalse(TEXT("rounded int32 overflow refused"), UEMCP::FormatLiteralForPinCategory(
+			IntPin, JsonNumber(Number), Default, Error, Code));
+		TestEqual(TEXT("integer range error"), Code, FString(TEXT("LITERAL_TYPE_MISMATCH")));
+	}
 
 	TestFalse(TEXT("int literal rejects string"),
 		UEMCP::FormatLiteralForPinCategory(MakePinType(UEdGraphSchema_K2::PC_Int), JsonString(TEXT("5")), Default, Error, Code));
 	TestEqual(TEXT("int mismatch code"), Code, FString(TEXT("LITERAL_TYPE_MISMATCH")));
 	TestEqual(TEXT("int mismatch message"), Error, FString(TEXT("Integer variable assignment requires a numeric literal")));
 
-	// --- float and real share one branch; the formatter is SanitizeFloat ---
+	// --- float and real share round-trip formatting ---
 	TestTrue(TEXT("real literal accepted"),
 		UEMCP::FormatLiteralForPinCategory(
 			MakePinType(UEdGraphSchema_K2::PC_Real, UEdGraphSchema_K2::PC_Float), JsonNumber(2.5), Default, Error, Code));
@@ -263,6 +277,16 @@ bool FUEMCPBlueprintHelpersLiteralDefaultsTest::RunTest(const FString& Parameter
 	TestTrue(TEXT("float literal accepted"),
 		UEMCP::FormatLiteralForPinCategory(MakePinType(UEdGraphSchema_K2::PC_Float), JsonNumber(2.5), Default, Error, Code));
 	TestEqual(TEXT("float literal formatting"), Default, FString::SanitizeFloat(2.5));
+
+	const double Small = 1.e-7;
+	TestTrue(TEXT("small float literal accepted"), UEMCP::FormatLiteralForPinCategory(
+		MakePinType(UEdGraphSchema_K2::PC_Real, UEdGraphSchema_K2::PC_Float), JsonNumber(Small), Default, Error, Code));
+	TestTrue(TEXT("small literal survives VM float conversion"), FCString::Atof(*Default) == static_cast<float>(Small));
+
+	const double Precise = 1.23456789012345;
+	TestTrue(TEXT("precise double literal accepted"), UEMCP::FormatLiteralForPinCategory(
+		MakePinType(UEdGraphSchema_K2::PC_Real, UEdGraphSchema_K2::PC_Double), JsonNumber(Precise), Default, Error, Code));
+	TestTrue(TEXT("double literal retains precision"), FCString::Atod(*Default) == Precise);
 
 	TestFalse(TEXT("float literal rejects bool"),
 		UEMCP::FormatLiteralForPinCategory(MakePinType(UEdGraphSchema_K2::PC_Float), JsonBool(true), Default, Error, Code));
@@ -295,6 +319,12 @@ bool FUEMCPBlueprintHelpersLiteralDefaultsTest::RunTest(const FString& Parameter
 	TestTrue(TEXT("vector literal accepted"),
 		UEMCP::FormatLiteralForPinCategory(VectorPin, JsonNumberArray({1.0, 2.0, 3.0}), Default, Error, Code));
 	TestEqual(TEXT("vector literal formatting"), Default, FString::Printf(TEXT("(X=%f,Y=%f,Z=%f)"), 1.0, 2.0, 3.0));
+	TestTrue(TEXT("vector literal shape"), Default.StartsWith(TEXT("(X=1.")) && Default.EndsWith(TEXT(")")));
+	const FVector PreciseVector(1.e-7, -1.23456789012345, 12.5);
+	TestTrue(TEXT("small and precise components accepted"), UEMCP::FormatLiteralForPinCategory(
+		VectorPin, JsonNumberArray({PreciseVector.X, PreciseVector.Y, PreciseVector.Z}), Default, Error, Code));
+	FVector Parsed;
+	TestTrue(TEXT("vector components survive formatting"), Parsed.InitFromString(Default) && Parsed == PreciseVector);
 
 	TArray<TSharedPtr<FJsonValue>> Mixed;
 	Mixed.Add(JsonNumber(1.0));
@@ -304,8 +334,6 @@ bool FUEMCPBlueprintHelpersLiteralDefaultsTest::RunTest(const FString& Parameter
 		UEMCP::FormatLiteralForPinCategory(VectorPin, MakeShared<FJsonValueArray>(Mixed), Default, Error, Code));
 	TestEqual(TEXT("vector element mismatch code"), Code, FString(TEXT("LITERAL_TYPE_MISMATCH")));
 	TestTrue(TEXT("vector element mismatch names the element"), Error.Contains(TEXT("element 1")));
-
-	TestTrue(TEXT("vector literal shape"), Default.StartsWith(TEXT("(X=1.")) && Default.EndsWith(TEXT(")")));
 
 	TestFalse(TEXT("vector literal rejects non-array"),
 		UEMCP::FormatLiteralForPinCategory(VectorPin, JsonNumber(1.0), Default, Error, Code));

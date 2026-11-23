@@ -4,10 +4,13 @@
 // parser. Every public verb is wrapped by withAssetExistenceCheck so a missing
 // asset returns {available:false} instead of throwing.
 
+import { isAbsolute, join, relative, sep } from 'node:path';
 import {
   resolvePackageIndex,
+  guidBytesToOracleHex,
   readExportProperties,
   pinBlockLayoutForPackage,
+  parsePinBlock,
   propertyTagLayoutForPackage,
   formatFName,
   resolveLinkedToEdges,
@@ -139,7 +142,7 @@ export async function findBlueprintNodes(projectRoot, params) {
   const offset = Math.max(0, params.offset ?? 0);
 
   const ctx = await parseAssetForPropertyRead(projectRoot, assetPath);
-  const { diskPath, buf, names, exports, imports, resolve, structHandlers, containerHandlers } = ctx;
+  const { diskPath, buf, names, exports, imports } = ctx;
   const header = await parseAssetHeader(projectRoot, assetPath);
   const primary = header.data.assetRegistry.objects[0] || null;
 
@@ -162,8 +165,7 @@ export async function findBlueprintNodes(projectRoot, params) {
     // Parse the node's tagged properties to extract FMemberReference / etc.
     let nodeProps;
     try {
-      nodeProps = readExportProperties(buf, e, names,
-        { resolve, structHandlers, containerHandlers });
+      nodeProps = readExportProperties(buf, e, names, ctx);
     } catch {
       nodeProps = { properties: {} };
     }
@@ -364,6 +366,29 @@ function canonicalNodeName(exportEntry) {
   );
 }
 
+// Object names are unique only within their outer. A saved Blueprint may
+// have K2Node_CallFunction_0 in several graphs.
+function resolveNodeExportIndex(exports, rawId) {
+  const index = Number(rawId);
+  if (Number.isInteger(index) && index > 0 && index <= exports.length) return index;
+  const exact = [];
+  const base = [];
+  for (const [offset, entry] of exports.entries()) {
+    if (entry.objectName === rawId || canonicalNodeName(entry) === rawId) exact.push(offset + 1);
+    else if (entry.objectNameBase === rawId) base.push(offset + 1);
+  }
+  const matches = exact.length ? exact : base;
+  if (matches.length > 1) {
+    const candidates = matches.map(id => {
+      const entry = exports[id - 1];
+      const outer = exports[entry.outerIndex - 1];
+      return `${outer ? canonicalNodeName(outer) + '.' : ''}${canonicalNodeName(entry)} (export index ${id})`;
+    });
+    throw new Error(`Ambiguous node name "${rawId}". Use the numeric export index for the intended node: ${candidates.join(', ')}`);
+  }
+  return matches[0] ?? null;
+}
+
 /**
  * Classify an EdGraph by its objectName. Heuristic — UE doesn't serialize
  * a type enum on UEdGraph; graph membership on the UBlueprint (UbergraphPages,
@@ -479,7 +504,6 @@ function extractSpatial(props) {
   if (props.EnabledState !== undefined) out.enabled_state = props.EnabledState;
   if (typeof props.bCommentBubblePinned === 'boolean') out.comment_bubble_pinned = props.bCommentBubblePinned;
   if (typeof props.bCommentBubbleVisible === 'boolean') out.comment_bubble_visible = props.bCommentBubbleVisible;
-  if (typeof props.NodeGuid === 'string') out.node_guid = props.NodeGuid;
   return out;
 }
 
@@ -606,10 +630,10 @@ async function bpListGraphs(projectRoot, params) {
  * bp_list_entry_points. Returns null if the node's serial range is invalid.
  */
 function parseNodeShape(ctx, exportEntry, exportIndex) {
-  const { buf, names, resolve, structHandlers, containerHandlers } = ctx;
+  const { buf, names } = ctx;
   let parsed;
   try {
-    parsed = readExportProperties(buf, exportEntry, names, { resolve, structHandlers, containerHandlers });
+    parsed = readExportProperties(buf, exportEntry, names, ctx);
   } catch {
     parsed = { properties: {} };
   }
@@ -619,6 +643,7 @@ function parseNodeShape(ctx, exportEntry, exportIndex) {
     node_id: exportIndex,
     node_name: canonicalNodeName(exportEntry),
     class_name: className,
+    ...(parsed.nodeGuid ? { node_guid: parsed.nodeGuid } : {}),
     ...extractSpatial(props),
   };
   if (className === 'EdGraphNode_Comment') Object.assign(row, extractCommentExtras(props));
@@ -670,6 +695,7 @@ async function bpFindInGraph(projectRoot, params) {
   }
 
   const page = matched.slice(offset, offset + limit);
+  const calls = page.filter(row => row.class_name === 'K2Node_CallFunction');
   return stripPackageIndex({
     asset_path: assetPath,
     diskPath: diskPath.replace(/\\/g, '/'),
@@ -681,6 +707,8 @@ async function bpFindInGraph(projectRoot, params) {
     limit,
     truncated: offset + limit < matched.length,
     nodes: page,
+    ...(calls.length === 1 && page.length === matched.length
+      ? { input_inspection: inputInspectionHint(assetPath, graph.name, calls[0].node_id) } : {}),
     ...faBetaManifest([]),
   });
 }
@@ -697,25 +725,7 @@ async function bpSubgraphInComment(projectRoot, params) {
   const ctx = await parseAssetForPropertyRead(projectRoot, assetPath);
   const { diskPath, exports, imports } = ctx;
 
-  // Resolve comment_node_id — integer/numeric-string matches export_index;
-  // plain string matches canonicalNodeName or objectName.
-  // Resolve any node id first (integer export_index OR string objectName),
-  // then verify it's a comment. Two-phase lookup gives callers a precise
-  // "not a comment" message when they pass a valid non-comment id, vs a
-  // generic "not found" when the id is bogus.
-  const asNum = Number(rawId);
-  let commentExportIndex = null;
-  if (Number.isInteger(asNum) && asNum > 0 && asNum <= exports.length) {
-    commentExportIndex = asNum;
-  } else {
-    for (let i = 0; i < exports.length; i++) {
-      const e = exports[i];
-      if (e.objectName === rawId || e.objectNameBase === rawId || canonicalNodeName(e) === rawId) {
-        commentExportIndex = i + 1;
-        break;
-      }
-    }
-  }
+  const commentExportIndex = resolveNodeExportIndex(exports, rawId);
   if (commentExportIndex === null) {
     throw new Error(`Comment node not found: ${rawId}`);
   }
@@ -804,7 +814,7 @@ async function bpListEntryPoints(projectRoot, params) {
     const shape = parseNodeShape(ctx, e, i + 1);
     const semantics = extractNodeSemantics(cls, shape.rawProps);
     const gName = graphNameByPi.get(e.outerIndex) ?? null;
-    const oracleGuid = toOracleHexGuid(shape.row.node_guid);
+    const oracleGuid = shape.row.node_guid ?? null;
     const hasNoExecIn = gName !== null && oracleGuid !== null
       ? !incomingExecByGraphGuid.has(`${gName}|${oracleGuid}`)
       : null;
@@ -825,6 +835,149 @@ async function bpListEntryPoints(projectRoot, params) {
     entry_points: entries,
     ...faBetaManifest([], ['exec_connectivity']),
   });
+}
+
+function inputInspectionHint(asset_path, graph_name, node_id) {
+  return { tool: 'inspect_blueprint_inputs', arguments: { asset_path, graph_name, node_id } };
+}
+
+function gamePackageName(projectRoot, diskPath) {
+  const inContent = relative(join(projectRoot, 'Content'), diskPath);
+  if (isAbsolute(inContent) || inContent.startsWith('..' + sep) || !inContent.toLowerCase().endsWith('.uasset')) {
+    return null;
+  }
+  return '/Game/' + inContent.slice(0, -'.uasset'.length).split(sep).join('/');
+}
+
+// Read the identity and pin block from the same package snapshot. Raw link counts
+// include unresolved targets, whose presence still overrides the stored default.
+async function inspectSavedCallInputs(projectRoot, { asset_path, graph_name, member_name, node_id, pin }) {
+  const ctx = await parseAssetForPropertyRead(projectRoot, asset_path);
+  const matches = indexBlueprintGraphs(ctx).graphs.filter(graph => graph.name === graph_name);
+  if (matches.length !== 1) return { status: matches.length ? 'ambiguous_graph' : 'graph_not_found' };
+
+  const candidates = [];
+  for (const row of matches[0]._nodes) {
+    if (row.className !== 'K2Node_CallFunction') continue;
+    if (node_id !== undefined && row.export_index !== node_id) continue;
+    const shape = parseNodeShape(ctx, row.export, row.export_index);
+    const member = extractNodeSemantics(row.className, shape.rawProps).member_name;
+    if (member_name !== undefined && member !== member_name) continue;
+    candidates.push({ node_id: row.export_index, node_name: shape.row.node_name,
+      node_guid: shape.row.node_guid, member_name: member ?? null });
+  }
+  if (candidates.length !== 1) {
+    return { status: candidates.length ? 'ambiguous_node' : 'node_not_found',
+      candidate_count: candidates.length, candidates: candidates.slice(0, 32) };
+  }
+
+  const node = candidates[0];
+  const owner = gamePackageName(projectRoot, ctx.diskPath);
+  const block = parsePinBlock(ctx.buf, ctx.exports[node.node_id - 1], ctx.names, {
+    resolve: ctx.resolve, structHandlers: ctx.structHandlers, containerHandlers: ctx.containerHandlers,
+    ...propertyTagLayoutForPackage(ctx.summary), ...pinBlockLayoutForPackage(ctx.summary),
+  });
+  if (block.malformed || !block.nodeGuid || block.pins.length === 0) {
+    return { node, owner, status: 'pin_data_unavailable' };
+  }
+  const pins = block.pins.filter(p => p.pin_id && !p.bOrphanedPin && p.direction === 'EGPD_Input');
+  return { node, owner, ...inspectInputLiterals(pins, pin) };
+}
+
+function inspectInputLiterals(pins, pinName, liveArgs) {
+  const selected = pins.filter(p => !pinName || p.name === pinName);
+  if (pinName && selected.length !== 1) {
+    return { status: selected.length ? 'ambiguous_pin' : 'pin_not_found', input_names: pins.map(p => p.name) };
+  }
+  return {
+    status: 'observed',
+    inputs: selected.map(p => {
+      const linkCount = liveArgs ? p.link_count : p.linked_to_raw.length;
+      const stored = {};
+      const value = liveArgs ? p.default : p.default_value;
+      if (value !== undefined) stored.value = value;
+      if ('default_object' in p) stored.object = p.default_object;
+      if ('default_text_value' in p) stored.text = p.default_text_value;
+      const binding = linkCount > 0 ? 'linked' : linkCount === 0 ? 'unlinked' : 'unknown';
+      const input = { name: p.name, pin_id: p.pin_id, binding, link_count: linkCount,
+        stored_default: Object.keys(stored).length ? stored : null };
+      if (!liveArgs) {
+        input.sub_pins = p.sub_pins_raw;
+        input.parent_pin = p.parent_pin_raw;
+        input.default_is_ignored = p.default_is_ignored;
+      }
+      if ('autogenerated_default_value' in p) input.autogenerated_default = p.autogenerated_default_value;
+      if (binding === 'linked') {
+        if (!liveArgs) input.linked_to = p.linked_to_raw;
+        else if (p.links) input.linked_to = p.links;
+        else input.inspect_links = { tool: 'show_pin_links',
+          arguments: { ...liveArgs, pin: p.name, direction: 'input' } };
+      }
+      return input;
+    }),
+  };
+}
+
+const inspectSavedCallInputsSafe = withAssetExistenceCheck(inspectSavedCallInputs);
+
+export async function inspectBlueprintInputs(projectRoot, params, readLive) {
+  const { asset_path, graph_name, pin, node_id, source = 'compare' } = params;
+  if (!['saved', 'compare'].includes(source)) throw new Error('source must be saved or compare');
+  const index = typeof node_id === 'string' && /^[1-9][0-9]*$/.test(node_id) ? Number(node_id) : node_id;
+  if (index !== undefined && !(Number.isSafeInteger(index) && index > 0)) {
+    throw new Error('node_id must be a positive numeric export index');
+  }
+  if (!graph_name?.trim() || (pin !== undefined && !pin.trim())) throw new Error('Expected a nonempty graph and input name');
+  const { owner, node, ...saved } = await inspectSavedCallInputsSafe(projectRoot, { ...params, node_id: index });
+  if (saved.available === false) saved.status = saved.reason;
+  const result = { asset_path, graph_name, selection_basis: 'saved_function_call', node, saved,
+    live: { status: 'not_requested' }, argument_evaluation: 'not_performed', runtime: 'not_evaluated' };
+  if (source === 'saved') return result;
+  if (!node?.node_guid || !owner || !readLive) {
+    result.live = { status: !node ? 'no_unique_saved_node' : !node.node_guid ? 'missing_saved_guid'
+      : !owner ? 'unsupported_live_mount' : 'editor_unavailable' };
+    return result;
+  }
+
+  try {
+    const args = { blueprint_name: owner, graph_name, node_id: node.node_guid };
+    const response = await readLive(args);
+    const detail = response?.result ?? response;
+    const matchesNode = data => data?.graph_name === graph_name &&
+      typeof data.node_id === 'string' && data.node_id.toUpperCase() === node.node_guid.toUpperCase();
+    if (!matchesNode(detail) || detail.node_class !== 'K2Node_CallFunction' || !Array.isArray(detail.pins)) {
+      result.live = { status: 'unexpected_node_reply' };
+      return result;
+    }
+    const inputs = detail.pins.filter(p => p.direction === 'input');
+    if (inputs.some(p => typeof p.orphaned !== 'boolean')) {
+      result.live = { status: 'pin_metadata_unavailable', missing_field: 'orphaned',
+        message: 'The editor did not identify which inputs are current. Sync the matching UEMCP plugin, rebuild the editor target, restart the editor and reconnect.' };
+      return result;
+    }
+    result.live = inspectInputLiterals(inputs.filter(p => p.orphaned === false), pin, args);
+    Object.assign(result.live, {
+      node_class: detail.node_class, member_identity: 'not_reported_by_editor',
+      pin_semantics: 'split_and_default_flags_not_reported',
+    });
+    const input = pin && result.live.inputs?.[0];
+    if (input?.binding === 'linked') {
+      const endpoints = await readLive(input.inspect_links.arguments);
+      const named = endpoints?.result ?? endpoints;
+      if (!matchesNode(named) || (named.node_class !== undefined && named.node_class !== detail.node_class) ||
+          !detail.topology_revision || named.topology_revision !== detail.topology_revision ||
+          !input.pin_id || named.pin_info?.pin_id !== input.pin_id || named.pin_info.direction !== 'input' ||
+          named.pin_info.name !== pin || named.pin_info.orphaned !== false || !Array.isArray(named.links) || named.links.length !== input.link_count) {
+        result.live = { status: 'inconsistent_pin_reply' };
+      } else {
+        input.linked_to = named.links;
+        delete input.inspect_links;
+      }
+    }
+  } catch (err) {
+    result.live = { status: 'unavailable', reason: err.code ?? 'editor_read_failed', message: err.message };
+  }
+  return result;
 }
 
 /**
@@ -848,19 +1001,7 @@ async function bpShowNode(projectRoot, params) {
   const ctx = await parseAssetForPropertyRead(projectRoot, assetPath);
   const { diskPath, exports, imports } = ctx;
 
-  const asNum = Number(rawId);
-  let nodeExportIndex = null;
-  if (Number.isInteger(asNum) && asNum > 0 && asNum <= exports.length) {
-    nodeExportIndex = asNum;
-  } else {
-    for (let i = 0; i < exports.length; i++) {
-      const e = exports[i];
-      if (e.objectName === rawId || e.objectNameBase === rawId || canonicalNodeName(e) === rawId) {
-        nodeExportIndex = i + 1;
-        break;
-      }
-    }
-  }
+  const nodeExportIndex = resolveNodeExportIndex(exports, rawId);
   if (nodeExportIndex === null) {
     throw new Error(`Node not found: ${rawId}`);
   }
@@ -884,7 +1025,7 @@ async function bpShowNode(projectRoot, params) {
   // coincident-guid node in the wrong graph (audit F-10).
   let pinsOut = [];
   let pinBlockAvailable = false;
-  const oracleGuid = toOracleHexGuid(shape.row.node_guid);
+  const oracleGuid = shape.row.node_guid ?? null;
   if (oracleGuid && graph) {
     const topology = extractBPEdgeTopologyFromCtx(ctx, assetPath);
     const match = topology.graphs?.[graph.name]?.nodes?.[oracleGuid];
@@ -905,10 +1046,32 @@ async function bpShowNode(projectRoot, params) {
     pins: pinsOut,
   };
 
+  const lookup = {};
+  if (graph && className === 'K2Node_CallFunction') {
+    lookup.input_inspection = inputInspectionHint(assetPath, graph.name, nodeExportIndex);
+  }
+  if (!pinBlockAvailable && graph && graph._nodes.some(row => row.export_index === nodeExportIndex)) {
+    // The native resolver takes /Game package names. Rebuild that name from
+    // the resolved file when the caller supplies a project-relative path.
+    const owner = gamePackageName(projectRoot, diskPath);
+    if (owner) {
+      lookup.live_pin_lookup = {
+        tool: 'show_pin_links',
+        arguments: {
+          blueprint_name: owner,
+          graph_name: graph.name,
+          ...(shape.row.node_guid ? { node_id: shape.row.node_guid } : { node_name: shape.row.node_name }),
+        },
+      };
+    } else {
+      lookup.live_pin_lookup_unavailable = 'Live Blueprint inspection requires a package in the attached project’s /Game content directory.';
+    }
+  }
   return stripPackageIndex({
     asset_path: assetPath,
     diskPath: diskPath.replace(/\\/g, '/'),
     node,
+    ...lookup,
     ...faBetaManifest(
       pinBlockAvailable ? [] : ['pin_block', 'pin_defaults'],
       pinBlockAvailable ? ['pin_block', 'pin_defaults'] : [],
@@ -996,38 +1159,8 @@ function isExecPin(pin) {
   return EXEC_PIN_NAME_RE.test(pin.name);
 }
 
-/**
- * Convert the raw NodeGuid emitted by the tagged-fallback FGuid handler
- * (32-char lowercase, byte-LE) into Oracle-A-v2 format (32-char uppercase,
- * BE-per-uint32). Mirrors the parser-internal `extractNodeGuid` transform.
- * Returns null when input isn't a 32-char hex string.
- */
-function toOracleHexGuid(rawGuid) {
-  if (typeof rawGuid !== 'string' || rawGuid.length !== 32) return null;
-  let out = '';
-  for (let g = 0; g < 4; g++) {
-    const chunk = rawGuid.substr(g * 8, 8);
-    const beHex = chunk.match(/../g).reverse().join('');
-    out += beHex.toUpperCase();
-  }
-  return out;
-}
-
-/**
- * Bridge a NodeGuid input to whichever form is keyed in `nodes`. Verb-surface
- * handlers (bp_trace_exec/bp_trace_data/bp_neighbors) key topology by the
- * Oracle-A-v2 canonical form (uppercase BE-per-uint32) but agents commonly
- * pipe NodeGuids straight from M-spatial-output verbs (bp_list_entry_points,
- * bp_find_in_graph, bp_list_graphs.comment_ids[]) which emit the raw
- * tagged-fallback FGuid form (lowercase byte-LE). Without this bridge the
- * lookup silently fails with `node_not_found` even though the node exists
- * (audit F-2). Tries in order:
- *   1. as-is — caller already canonical OR happens to be keyed verbatim.
- *   2. uppercase — caller passed canonical form with mixed case.
- *   3. toOracleHexGuid(lowercase) — caller passed M-spatial raw form.
- * Returns the form present in `nodes`, or rawInput unchanged when nothing
- * matches (downstream surfaces `node_not_found` per existing contract).
- */
+// Older spatial queries returned the four uint32 words in file order. Keep
+// stored inputs usable while preferring the engine GUID for new requests.
 function normalizeNodeGuidInput(rawInput, nodes) {
   if (typeof rawInput !== 'string' || rawInput.length !== 32) return rawInput;
   if (!nodes) return rawInput;
@@ -1035,7 +1168,7 @@ function normalizeNodeGuidInput(rawInput, nodes) {
   const upper = rawInput.toUpperCase();
   if (upper !== rawInput && nodes[upper]) return upper;
   if (/^[0-9a-fA-F]{32}$/.test(rawInput)) {
-    const oracle = toOracleHexGuid(rawInput.toLowerCase());
+    const oracle = guidBytesToOracleHex(Buffer.from(rawInput, 'hex'));
     if (oracle && nodes[oracle]) return oracle;
   }
   return rawInput;
@@ -1104,9 +1237,7 @@ async function bpTraceExec(projectRoot, params) {
   if (g.envelope) return g.envelope;
 
   const nodes = g.graph.nodes;
-  // F-2 input bridge: agents commonly pipe `bp_list_entry_points.entry_points
-  // [].node_guid` (M-spatial raw lowercase-LE) straight into start_node_id.
-  // Normalize against topology key form (Oracle-A canonical uppercase-BE).
+  // Persisted file-order inputs from older readers still resolve to the engine GUID.
   const startGuid = normalizeNodeGuidInput(rawStartGuid, nodes);
   if (!nodes[startGuid]) {
     return {

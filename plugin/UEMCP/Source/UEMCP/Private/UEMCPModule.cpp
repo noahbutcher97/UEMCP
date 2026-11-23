@@ -1,5 +1,6 @@
 // Copyright Noah Butcher. All Rights Reserved.
 #include "UEMCPModule.h"
+#include "GraphActionAuthoring.h"
 #include "MCPCommandRegistry.h"
 #include "MCPServerRunnable.h"
 #include "SidecarMenuHook.h"
@@ -198,6 +199,7 @@ void FUEMCPModule::ShutdownModule()
 	UEMCP::UnregisterSidecarMenuHook();
 	UEMCP::UnregisterSidecarSaveHook();
 	StopTcpServer();
+	UEMCP::GraphActionAuthoring::Shutdown();
 	UE_LOG(LogUEMCP, Log, TEXT("UEMCP: module shutdown"));
 }
 

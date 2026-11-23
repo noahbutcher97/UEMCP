@@ -15,36 +15,39 @@ projects. Historical rationale is retained in the [September notes preserved at 
 
 ## Current work and next qualification
 
-- [x] **TRANSPORT-53-NUL** — Fixed and qualified on the local core branch,
-  pending integration into main. UE 5.3.2 dropped JSON string contents when
+- [x] **TRANSPORT-53-NUL** — UE 5.3.2 dropped JSON string contents when
   the first decoded code unit was NUL. The repair preserves those contents in
   both framed and legacy requests. All seven native transport tests passed
   on UE 5.3.2, 5.6.1 and 5.8.4 Win64. A fresh installed UE 5.3.2 editor
   passed the original nine tests with the integrated package. Native change
   `651e80e`, integrated plugin at `8672b93`. After the passing run, the
   coordinator verified and removed the retained reproducer. [Qualification record](../../tasks/todo.md#core-correctness-results-2026-11-22)
-- [x] **Transport object key identity.** Fixed locally in `dfaad30` on
-  `task/core-findings`. Framed and legacy intake refuse keys containing NUL
+- [x] **Transport object key identity.** Since `dfaad30`, framed and legacy
+  intake refuse keys containing NUL
   and differently spelled sibling keys the engine would collapse. A corrected
   request succeeds. UE 5.3.2, 5.6.1 and 5.8.4 Win64 each passed 18 live wire
-  checks and all seven native transport tests. Integration into main is pending.
+  checks and all seven native transport tests.
 - [x] **Pawn fixture transaction ownership.** The old UE 5.3.2 fixture added
-  four entries to editor Undo and retained the source node. Local fix `ee3f848`
+  four entries to editor Undo and retained the source node. Commit `ee3f848`
   gives the fixture its own history. Normal teardown and early return release the
   Blueprint and preserve an unrelated redo on all three engines. Five fresh UE
   5.3.2 content-only editors passed the original nine-case suite with the same
-  project-built DLL. Integration into main is pending.
-- **Watch for a recurrence of the historical packaged GC crash.** Its precise
-  UObject remains unidentified. The minidump contains partial memory and
-  matching editor CoreUObject symbols were unavailable locally. If the fault recurs, capture
-  a full process dump, matching symbols and the pre-collection transaction and
-  object identities. [Original package evidence](../../tasks/todo.md#core-correctness-results-2026-11-22)
+  project-built DLL.
+- **Investigate the intermittent UE 5.3.2 fixture GC crash.** During integration
+  one 38-case run crashed in a CoreUObject worker while the game thread tore
+  down the AssignmentExecFrom fixture. Three subsequent full runs passed with
+  the same binaries. The earlier packaged crash occurred during PawnGraphGuidWiring.
+  Both crashes read address 0xc and share 15 trailing frames. Their top frames
+  differ, and the invalid UObject and common cause remain unknown. Preserve the
+  dumps and match engine symbols, then capture pre-collection transaction and
+  object identities in a diagnostic run. [Original package evidence](../../tasks/todo.md#core-correctness-results-2026-11-22)
 
 | ID | Status | Work / acceptance |
 |---|---|---|
 | QA-1 | Owned actor and ordinary PIE slice passed; broader qualification open | Live MCP identity, actor writes/readback and two stop/next-operation cycles per engine passed on UE 5.3.2, 5.6.1 and 5.8.4 Win64. [Execution and limits](../owned-pie-lifecycle.md#live-stop-and-next-operation-check-2026-11-19) |
 | QA-2 | Open qualification | Run the supported-engine compilation/runtime matrix for the new material graph surface. UE 5.8.3 Win64 D3D12/SM5 is verified; other versions/platforms and rendered appearance are not. |
 | QA-3 | Open qualification | Desktop client/editor UI acceptance remains separate from the completed terminal-client and transport-isolation proof. Shared-directory concurrent asset edits are not made safe by port isolation. See [session isolation](../project-session-isolation.md). |
+| QA-4 | Reproduced agent discovery friction | With an owned UE 5.3.2 editor running, Codex CLI 0.171.0 stopped after inspecting the saved Blueprint when only offline tools were enabled. With one hint about live tool discovery it authored, compiled and saved the requested node. Qualify recovery from this starting point without a hint, including editor identity verification and fresh-editor readback. Track whether the client actually sends a malformed input before claiming error recovery. |
 | EN-32 | Deferred capability | Extend scalar material functions with typed vector/texture inputs and nodes, more math, function instances, layer/blend functions and safe interface edits. Choose one workflow-driven slice with its own host oracle, Undo and persistence gate. |
 | OPS-1 | Pending explicit target selection | Select intended consumer targets and deploy an explicitly verified source revision, with deployment verification and editor/client restart. PR #62 and PR #64 verification used disposable owned hosts; a version label alone does not identify the tested source. |
 
@@ -88,7 +91,7 @@ priority; archived fixture recovery is not a gate for unrelated product work.
 
 | ID | Status | Work / acceptance |
 |---|---|---|
-| U5 | Interactive blend, Slot insertion, sequence-backed states and shared cached poses implemented on the task branch | [Animation authoring program](../plans/animation-authoring-program.md): Animation Blueprints, sequences, montages, shared timeline editing, supporting assets, rig/retarget/bake workflows and authoring feedback, prioritized against blocked user workflows. The [Event Graph blend](../plans/animbp-interactive-authoring.md) and [Slot insertion](../plans/u5-animation-authoring.md) have owned editor workflows. UE 5.3.2, 5.6.1 and 5.8.4 also passed sequence-backed state transitions using a numeric comparison and shared cached-pose authoring with multiple users. Further rule expressions, additional pose node families and layered bone masks remain open. Each selected slice needs its own compile, Undo and persistence proof. |
+| U5 | Interactive blend, Slot insertion, sequence-backed states and shared cached poses merged in PR #67 | The [animation authoring program](../plans/animation-authoring-program.md) covers AnimBPs, sequences, montages, timeline editing, supporting assets, rig/retarget/bake workflows and authoring feedback. UE 5.3.2, 5.6.1 and 5.8.4 passed the merged interactive workflows. On the local graph placement branch, agents can discover and place the exact pawn Enhanced Input binding and AnimGraph Sequence Player. The [qualification record](../plans/graph-action-placement-qualification.md) covers duplicate prevention, mapped input and sampled motion. The next character milestone connects the pawn state to the AnimInstance and evaluates the layered authored and procedural result. The [inspection and montage decisions](../plans/animation-inspection-and-montage-decisions.md) record the qualified read operation, timeline bounds and explicit section routing. Further rule expressions, procedural node families and layered bone masks require their own implementation and runtime proof. |
 | AUD-1 | Recurring organization audit; baseline pending | Reconcile docs, roadmap, tool status, test ownership and retained linked checkouts and artifacts at slice closure and release checkpoints. |
 | AUD-2 | Recurring research audit | Refresh decision-driving engine/API assumptions before implementation and after relevant changes; preserve historical evidence and record superseding decisions. |
 | AUD-3 | Animation-focused source/revision review recorded 2026-11-19; broader baseline pending | Maintain a bounded primary-source watchlist and adopt/experiment/defer/reject findings. See [U12 audit policy](ecosystem-watch.md); peer runtime/CI and broader activity review remain unverified; no monitoring automation is configured. |

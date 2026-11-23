@@ -422,6 +422,14 @@ if exist "!PLUGIN_DEST!" (
     echo Plugin copy skipped. Existing plugin preserved.
     goto :plugin_done
   )
+)
+set "RULES_SNAPSHOT="
+for /f "usebackq delims=" %%S in (`powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "!UEMCP_PATH!\server\sync-module-rules.ps1" -Phase Capture -SourceDir "!PLUGIN_SRC!" -DestinationDir "!PLUGIN_DEST!"`) do set "RULES_SNAPSHOT=%%S"
+if not defined RULES_SNAPSHOT (
+  echo [ERROR] Cannot inspect module rules. Existing plugin preserved.
+  set "EXIT_CODE=4" & goto :end
+)
+if exist "!PLUGIN_DEST!" (
   echo Removing old plugin copy...
   rmdir /s /q "!PLUGIN_DEST!"
   if exist "!PLUGIN_DEST!" (
@@ -440,6 +448,7 @@ REM would split the argument. Run from %TEMP% and pass a relative name.
 pushd "%TEMP%"
 > uemcp-setup-exclude.txt echo \Binaries\
 >> uemcp-setup-exclude.txt echo \Intermediate\
+>> uemcp-setup-exclude.txt echo \Source\UEMCP\UEMCP.Build.cs
 echo Copying UEMCP plugin source to !PLUGIN_DEST! ... excluding Binaries\ and Intermediate\
 xcopy /E /I /Y /Q /EXCLUDE:uemcp-setup-exclude.txt "!PLUGIN_SRC!" "!PLUGIN_DEST!" >nul
 set "XCOPY_EXIT=!errorlevel!"
@@ -449,6 +458,8 @@ if not "!XCOPY_EXIT!"=="0" (
   echo [ERROR] Plugin copy failed. xcopy exit code: !XCOPY_EXIT!
   set "EXIT_CODE=4" & goto :end
 )
+powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "!UEMCP_PATH!\server\sync-module-rules.ps1" -Phase Install -SourceDir "!PLUGIN_SRC!" -DestinationDir "!PLUGIN_DEST!" -Snapshot "!RULES_SNAPSHOT!"
+if errorlevel 1 (set "EXIT_CODE=4" & goto :end)
 echo [SUCCESS] Plugin installed at !PLUGIN_DEST!.
 
 REM --- Write the W-L deploy marker, D138 ---

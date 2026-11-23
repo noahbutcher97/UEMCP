@@ -101,16 +101,23 @@ try {
     'UEMCP.BlueprintHandlers.ClassPinConnections',
     'UEMCP.BlueprintHandlers.AssignmentSavedFailureIsolation',
     'UEMCP.BlueprintHandlers.StateNamingIsolation',
+    'UEMCP.BlueprintHandlers.GraphNodePinInspection',
     'UEMCP.BlueprintHandlers.FunctionConnectionUndo',
+    'UEMCP.BlueprintHandlers.WriterPinDefaults',
+    'UEMCP.BlueprintHandlers.FunctionGraphIdentity',
+    'UEMCP.BlueprintHandlers.PawnGraphGuidWiring',
+    'UEMCP.BlueprintHandlers.ReadOnlyGraphWiring',
+    'UEMCP.BlueprintHandlers.PawnFixtureEarlyReturn',
+    'UEMCP.GraphActions.AssetPlacement',
   ];
   let blueprint;
   try { blueprint = loadTestProfile('native-blueprint'); } catch { /* Keep the missing-profile regression explicit. */ }
   runner.assert(blueprint?.runner === 'native' && JSON.stringify(blueprint.suites) === JSON.stringify([{ name: 'native', cases: blueprintNames }]) && JSON.stringify(blueprint.fixturePaths) === '[]' && JSON.stringify(blueprint.capabilities) === JSON.stringify(['engine', 'nullrhi']), 'native blueprint requires the exact registered cases without saved fixture inputs');
-  const blueprintRegistrations = ['UEMCPBlueprintHelperTests.cpp', 'UEMCPBlueprintHandlerTests.cpp'].flatMap(file => {
+  const blueprintRegistrations = ['UEMCPBlueprintHelperTests.cpp', 'UEMCPBlueprintHandlerTests.cpp', 'UEMCPGraphActionPlacementTests.cpp'].flatMap(file => {
     const source = readFileSync(new URL(`../plugin/UEMCP/Source/UEMCP/Private/Tests/${file}`, import.meta.url), 'utf8');
-    return [...source.matchAll(/IMPLEMENT_SIMPLE_AUTOMATION_TEST\s*\(\s*\w+\s*,\s*"(UEMCP\.Blueprint(?:Helpers|Handlers)\.[A-Za-z]+)"/g)].map(match => match[1]);
+    return [...source.matchAll(/IMPLEMENT_SIMPLE_AUTOMATION_TEST\s*\(\s*\w+\s*,\s*"(UEMCP\.(?:BlueprintHelpers|BlueprintHandlers|GraphActions)\.[A-Za-z]+)"/g)].map(match => match[1]);
   });
-  runner.assert(JSON.stringify(blueprintRegistrations) === JSON.stringify(blueprintNames), 'native blueprint expectations match helper and handler C++ registrations');
+  runner.assert(JSON.stringify(blueprintRegistrations) === JSON.stringify(blueprintNames), 'native blueprint expectations match helper, handler and asset-placement C++ registrations');
   if (blueprint) {
     const blueprintSource = collectSourceState(REPOSITORY_ROOT);
     const blueprintEvidence = {
@@ -325,8 +332,8 @@ try {
         "owned data: empty traversal at requested depth 1 reports cap 1",
         "owned data: empty traversal at requested depth 500 reports cap 500",
         "owned data: empty traversal at requested depth 501 reports cap 500",
-        "owned data: raw entry-point GUID feeds data query and echoes oracle canonical identity",
-        "owned data: raw inspected call GUID echoes its distinct oracle canonical identity",
+        "owned data: entry-point and historical file-order GUIDs resolve the oracle event",
+        "owned data: inspected and historical file-order GUIDs resolve the oracle call",
         "owned data: unknown graph returns exact unavailable envelope",
         "owned data: unknown node returns exact unavailable envelope",
         "owned data: missing asset_path is rejected after valid baseline",

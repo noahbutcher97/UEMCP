@@ -133,6 +133,7 @@ const REQUIRED_ANNOTATED_TOOLS = new Set([
   'add_mapping',
   'create_montage',
   'add_montage_section',
+  'set_montage_next_section',
   'add_montage_notify',
 ]);
 
@@ -705,8 +706,8 @@ try {
   // was not part of the prior 144). 152 = 149 + 3: D202 added describe_tool,
   // call_tool and call_mutating_tool to management.
   t.assert(
-    listedRows.length === 164,
-    'independent all-enabled tools/list inventory contains 164 registered tools',
+    listedRows.length === 168,
+    'independent all-enabled tools/list inventory contains 168 registered tools',
     `listed=${listedRows.length}`,
   );
 

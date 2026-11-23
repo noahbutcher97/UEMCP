@@ -108,6 +108,7 @@ namespace UEMCP
 		Obj->SetStringField(TEXT("pin_id"), Pin->PinId.ToString());
 		Obj->SetStringField(TEXT("name"), Pin->PinName.ToString());
 		Obj->SetStringField(TEXT("direction"), PinDirectionToString(Pin->Direction));
+		Obj->SetBoolField(TEXT("orphaned"), Pin->bOrphanedPin);
 		Obj->SetStringField(TEXT("category"), Pin->PinType.PinCategory.ToString());
 		Obj->SetStringField(TEXT("subcategory"), Pin->PinType.PinSubCategory.ToString());
 		if (Pin->PinType.PinSubCategoryObject.IsValid())
@@ -115,6 +116,10 @@ namespace UEMCP
 			Obj->SetStringField(TEXT("subcategory_object"), Pin->PinType.PinSubCategoryObject->GetName());
 		}
 		Obj->SetStringField(TEXT("default"), Pin->DefaultValue);
+		if (Pin->PinType.PinCategory == UEdGraphSchema_K2::PC_Text || !Pin->DefaultTextValue.IsEmpty())
+		{
+			Obj->SetStringField(TEXT("default_text_value"), Pin->DefaultTextValue.ToString());
+		}
 		if (Pin->DefaultObject)
 		{
 			Obj->SetStringField(TEXT("default_object"), Pin->DefaultObject->GetPathName());
@@ -270,6 +275,15 @@ namespace UEMCP
 		return false;
 	}
 
+	bool IsRepresentableRealPinValue(double Value, bool bSinglePrecision)
+	{
+		if (!FMath::IsFinite(Value)) return false;
+		if (!bSinglePrecision) return true;
+		// A decimal just beyond FLT_MAX can still round to the largest finite float.
+		const float Rounded = static_cast<float>(Value);
+		return FMath::IsFinite(Rounded) && (Value == 0.0 || Rounded != 0.f);
+	}
+
 	bool FormatLiteralForPinCategory(const FEdGraphPinType& PinType,
 		const TSharedPtr<FJsonValue>& Value, FString& OutDefaultValue,
 		FString& OutError, FString& OutErrorCode)
@@ -290,8 +304,21 @@ namespace UEMCP
 				OutErrorCode = TEXT("LITERAL_TYPE_MISMATCH");
 				return false;
 			}
-			OutDefaultValue = FString::FromInt(FMath::RoundToInt(Value->AsNumber()));
-			return true;
+			const double Number = Value->AsNumber();
+			// Keep Unreal's original rounding in the int32 neighborhood. Larger
+			// inputs cannot round into range and could overflow the int64 conversion.
+			if (Number >= double(MIN_int32) - 1.0 && Number <= double(MAX_int32) + 1.0)
+			{
+				const int64 Rounded = FMath::RoundToInt64(Number);
+				if (Rounded >= MIN_int32 && Rounded <= MAX_int32)
+				{
+					OutDefaultValue = FString::FromInt(static_cast<int32>(Rounded));
+					return true;
+				}
+			}
+			OutError = TEXT("Rounded assignment is outside the Integer variable's int32 range");
+			OutErrorCode = TEXT("LITERAL_TYPE_MISMATCH");
+			return false;
 		}
 		if (Category == UEdGraphSchema_K2::PC_Float || Category == UEdGraphSchema_K2::PC_Real)
 		{
@@ -301,7 +328,23 @@ namespace UEMCP
 				OutErrorCode = TEXT("LITERAL_TYPE_MISMATCH");
 				return false;
 			}
-			OutDefaultValue = FString::SanitizeFloat(Value->AsNumber());
+			const double Number = Value->AsNumber();
+			const bool bSinglePrecision = Category == UEdGraphSchema_K2::PC_Float || PinType.PinSubCategory == UEdGraphSchema_K2::PC_Float;
+			if (!IsRepresentableRealPinValue(Number, bSinglePrecision))
+			{
+				OutError = TEXT("Numeric literal exceeds the pin's finite range");
+				OutErrorCode = TEXT("LITERAL_TYPE_MISMATCH");
+				return false;
+			}
+			// Preserve established pin text when it already represents the value.
+			// SanitizeFloat starts from %f, so small values can otherwise become 0.
+			OutDefaultValue = FString::SanitizeFloat(Number);
+			const bool bRoundTrips = bSinglePrecision ? FCString::Atof(*OutDefaultValue) == static_cast<float>(Number) :
+				FCString::Atod(*OutDefaultValue) == Number;
+			if (!bRoundTrips)
+			{
+				OutDefaultValue = FString::Printf(TEXT("%.17g"), Number);
+			}
 			return true;
 		}
 		if (Category == UEdGraphSchema_K2::PC_Boolean)
@@ -346,7 +389,12 @@ namespace UEMCP
 				OutErrorCode = TEXT("LITERAL_TYPE_MISMATCH");
 				return false;
 			}
-			OutDefaultValue = FString::Printf(TEXT("(X=%f,Y=%f,Z=%f)"), X, Y, Z);
+			auto FormatComponent = [](double Component)
+			{
+				const FString Fixed = FString::Printf(TEXT("%f"), Component);
+				return FCString::Atod(*Fixed) == Component ? Fixed : FString::Printf(TEXT("%.17g"), Component);
+			};
+			OutDefaultValue = FString::Printf(TEXT("(X=%s,Y=%s,Z=%s)"), *FormatComponent(X), *FormatComponent(Y), *FormatComponent(Z));
 			return true;
 		}
 

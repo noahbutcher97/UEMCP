@@ -592,22 +592,6 @@ console.log('\n═══ tools.yaml registration for M-new verbs ═══');
 
 // ── F-2 NodeGuid input bridge (D81 follow-on) ────────────────────────
 //
-// Audit F-2: Verb-surface trace verbs key topology by Oracle-A canonical
-// (uppercase BE-per-uint32) but agents commonly pipe raw M-spatial form
-// (lowercase byte-LE) emitted by bp_list_entry_points / bp_find_in_graph
-// straight into start_node_id / node_id. Without input normalization the
-// lookup silently fails with `node_not_found`. These tests validate the
-// exact agent-composition gap the audit flagged.
-function toOracleProbe(raw) {
-  if (typeof raw !== 'string' || raw.length !== 32) return null;
-  let out = '';
-  for (let g = 0; g < 4; g++) {
-    const chunk = raw.substr(g * 8, 8);
-    out += chunk.match(/../g).reverse().join('').toUpperCase();
-  }
-  return out;
-}
-
 console.log('\n═══ F-2 input bridge: bp_list_entry_points → trace verbs (no manual reformat) ═══');
 if (HAS_BP_DENSE) {
   const ep = await executeOfflineTool('bp_list_entry_points',
@@ -619,29 +603,24 @@ if (HAS_BP_DENSE) {
   assert(seed != null,
     'composition seed: bp_list_entry_points returned at least one EventGraph entry with 32-char node_guid');
 
-  // Sanity: the M-spatial raw form must actually differ from canonical, else
-  // the bridge isn't being exercised (advisor's caveat).
-  const canonical = toOracleProbe(seed.node_guid);
-  assert(canonical !== null && canonical !== seed.node_guid,
-    `composition seed differs from canonical form (raw=${seed.node_guid}, canonical=${canonical}) — bridge is exercised`);
-
-  // bp_trace_exec accepts raw M-spatial form without manual reformatting.
+  const canonical = seed.node_guid;
+  assert(/^[0-9A-F]{32}$/.test(canonical), 'entry point supplies an engine NodeGuid');
   const traceExec = await executeOfflineTool('bp_trace_exec', {
     asset_path: BP_DENSE,
     graph_name: seed.graph_name,
     start_node_id: seed.node_guid,
   }, PROJECT_ROOT);
   assert(traceExec.available !== false,
-    `bp_trace_exec accepts M-spatial raw form (was ${traceExec.reason ?? 'OK'})`);
+    `bp_trace_exec accepts discovered GUID (was ${traceExec.reason ?? 'OK'})`);
   assert(Array.isArray(traceExec.chain) && traceExec.chain.length >= 1,
-    'bp_trace_exec with M-spatial input returns non-empty chain');
+    'bp_trace_exec with discovered GUID returns non-empty chain');
   // Response echoes canonical form (normalization is observable).
   assert(traceExec.start_node_id === canonical,
     `bp_trace_exec echoes canonical start_node_id (got ${traceExec.start_node_id})`);
   assert(traceExec.chain[0].node_guid === canonical,
     'bp_trace_exec chain[0].node_guid is canonical form');
 
-  // bp_trace_data accepts raw M-spatial form. Use the same seed; data sinks
+  // bp_trace_data accepts the same discovered GUID; data sinks
   // may be empty for a pure entry-point — assert envelope shape, not content.
   const traceData = await executeOfflineTool('bp_trace_data', {
     asset_path: BP_DENSE,
@@ -649,18 +628,18 @@ if (HAS_BP_DENSE) {
     start_node_id: seed.node_guid,
   }, PROJECT_ROOT);
   assert(traceData.available !== false,
-    `bp_trace_data accepts M-spatial raw form (was ${traceData.reason ?? 'OK'})`);
+    `bp_trace_data accepts discovered GUID (was ${traceData.reason ?? 'OK'})`);
   assert(traceData.start_node_id === canonical,
     'bp_trace_data echoes canonical start_node_id');
 
-  // bp_neighbors accepts raw M-spatial form via node_id.
+  // bp_neighbors accepts the discovered GUID via node_id.
   const neighbors = await executeOfflineTool('bp_neighbors', {
     asset_path: BP_DENSE,
     graph_name: seed.graph_name,
     node_id: seed.node_guid,
   }, PROJECT_ROOT);
   assert(neighbors.available !== false,
-    `bp_neighbors accepts M-spatial raw form (was ${neighbors.reason ?? 'OK'})`);
+    `bp_neighbors accepts discovered GUID (was ${neighbors.reason ?? 'OK'})`);
   assert(neighbors.node_id === canonical,
     'bp_neighbors echoes canonical node_id');
 } else {
@@ -764,13 +743,11 @@ if (HAS_BP_DENSE) {
       start_node_id: entry.node_guid,
     }, PROJECT_ROOT);
     assert(trace.available !== false || trace.reason !== 'node_not_found',
-      `bp_trace_exec accepts ${label} from bp_list_entry_points (raw guid ${entry.node_guid.slice(0, 8)}…)`);
+      `bp_trace_exec accepts ${label} from bp_list_entry_points (guid ${entry.node_guid.slice(0, 8)}…)`);
     assert(typeof trace.start_node_id === 'string' && trace.start_node_id.length === 32,
       `bp_trace_exec echoes 32-char canonical start_node_id for ${label}`);
-    // Echoed canonical must NOT equal the raw input — otherwise the bridge
-    // didn't do anything (e.g., topology accidentally keyed by raw form).
-    assert(trace.start_node_id !== entry.node_guid,
-      `bp_trace_exec normalizes ${label}: raw ≠ canonical (raw=${entry.node_guid}, echoed=${trace.start_node_id})`);
+    assert(trace.start_node_id === entry.node_guid,
+      `bp_trace_exec echoes the discovered engine GUID for ${label}`);
   }
 } else {
   skipFixture('F-2 input bridge: SMOKE-FIX exhaustive regression', BP_DENSE_SKIP_REASON);

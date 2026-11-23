@@ -128,8 +128,7 @@ was checked for API compatibility and has no separate runtime trial.
 At closeout the coordinator verified removal of all five private build
 profiles, the 19.42 GiB compiler copy, the run directory and the original
 decoder reproducer. All 55,170 read-only compiler inputs matched the installed
-originals before their copied attributes were cleared. The integrated core
-and cleanup helper checkouts remain for review and merge.
+originals before their copied attributes were cleared.
 
 ## Roadmap slices
 

@@ -9,7 +9,7 @@ import { prepareOwnedHostRuntime, validateFixtureHost } from './prepare-fixture-
 import { listEditorProcesses } from './editor-processes.mjs';
 import { canonicalizePath } from './project-identity.mjs';
 import { assertNoOwnedAuthoringConflicts } from './owned-authoring-conflicts.mjs';
-import { materialLiveEditorArgs, readMcpJson, verifyLiveIdentity } from './run-material-live.mjs';
+import { materialLiveEditorArgs, readMcpJson, requireMaterialLiveAllowlist, verifyLiveIdentity } from './run-material-live.mjs';
 import { hostControl } from './material-live-flow.mjs';
 
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -18,6 +18,7 @@ export function normalEditorArgs(options) {
     .map(arg => arg.replace(`RemoteControlHttpServerPort=${options.port},`, ''));
 }
 export async function openOwnedEditorSession({ repoRoot, outputRoot, engineRoot, ports, label, peers = [] }) {
+  requireMaterialLiveAllowlist(engineRoot);
   const validation = { repoRoot, outputRoot, materialLifecycleAssets: 'required', projectPorts: ports };
   await validateFixtureHost(validation);
   const editors = listEditorProcesses({ strict: true });

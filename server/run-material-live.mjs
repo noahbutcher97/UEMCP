@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync, statSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import net from 'node:net';
 import { spawn } from 'node:child_process';
@@ -20,6 +20,13 @@ async function freePort() {
   await new Promise(resolve => server.close(resolve));
   return port;
 }
+export function requireMaterialLiveAllowlist(engineRoot) {
+  const header = join(engineRoot, 'Engine/Plugins/VirtualProduction/RemoteControl/Source/RemoteControlCommon/Public/RCAllowedRemoteFunctionCall.h');
+  if (!statSync(header, { throwIfNoEntry: false })?.isFile()) {
+    throw new Error('Material live qualification requires an engine with the Remote Control function allowlist (RCAllowedRemoteFunctionCall.h)');
+  }
+}
+
 export function materialLiveEditorArgs({ project, runtime, port, tcpPort, log }) {
   return [project, '-UEMCPMaterialLive', `-UEMCPTcpPort=${tcpPort}`, '-RCWebControlEnable', '-RenderOffscreen', '-nosound', '-unattended', '-nosplash', '-NoLiveCoding',
     ...runtime.args, '-ini:Engine:[HTTPServer.Listeners]:DefaultBindAddress=127.0.0.1',
@@ -41,6 +48,7 @@ export function materialMcpEnvelope(name, args, descriptor) {
 }
 export async function runMaterialLive({ repoRoot = resolve(import.meta.dirname, '..'), outputRoot, engineRoot, flow = exerciseMaterialLiveFlow, materialGraphAssets = false }) {
   if (!outputRoot || !engineRoot) throw new Error('Explicit fresh stage and engine required');
+  requireMaterialLiveAllowlist(engineRoot);
   // Reuse the owned build, fixture authoring, native baseline and reload gate.
   await runMaterialLifecycle({ repoRoot, outputRoot, engineRoot });
   const project = join(outputRoot, 'host/UEMCPFixture.uproject');

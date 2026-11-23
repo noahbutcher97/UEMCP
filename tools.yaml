@@ -137,7 +137,7 @@ toolsets:
           max_scan:    { type: number, required: false, description: "Max files walked (default 5000, cap 20000). Response sets truncated:true when hit." }
           verbose:     { type: boolean, required: false, default: false, description: "When false, strips blob tags exceeding 1KB. When true, returns all tags." }
       inspect_blueprint:
-        description: Deep introspection of a .uasset (BP, UMG widget, AnimBP, DataAsset). Returns export table with resolved class/super/outer names, parent class, generated class. With include_defaults=true, also returns CDO UPROPERTY values (scalars, 10 engine structs, simple-element TArray/TSet; custom structs and complex containers marked unsupported). Use this for structural view + a convenience CDO dump in one call; use read_asset_properties when you need values on a non-CDO export or a filtered subset. NOTE - tags removed; use get_asset_info for asset-registry metadata. The old `verbose` param is no longer accepted (renamed to include_defaults with new semantics). Pointed query — not cached.
+        description: Deep introspection of a .uasset (BP, UMG widget, AnimBP, DataAsset). Returns export table with resolved class/super/outer names, parent class, generated class. With include_defaults=true, also returns CDO UPROPERTY values (scalars, 10 engine structs, simple-element TArray/TSet; custom structs and complex containers marked unsupported). Use this for structural view + a convenience CDO dump in one call; use read_asset_properties when you need values on a non-CDO export or a filtered subset. NOTE - tags removed; use get_asset_info for asset-registry metadata. The old `verbose` param is no longer accepted (renamed to include_defaults with new semantics). Pointed query — not cached. For actual function-call arguments use inspect_blueprint_inputs with the graph name.
         params:
           asset_path:       { type: string, required: true, description: "/Game/... path (with or without .uasset extension) or project-relative Content/... path" }
           include_defaults: { type: boolean, required: false, default: false, description: "When true, include variable_defaults (decoded CDO UPROPERTYs) and an unsupported_defaults list." }
@@ -237,6 +237,21 @@ toolsets:
           spatial/comment fields are first-class here.
         params:
           asset_path: { type: string, required: true, description: "/Game/... path to a Blueprint .uasset (with or without extension)" }
+      inspect_blueprint_inputs:
+        aliases: ["actual arguments", "function inputs", "pin values", "saved and live pins", "Blueprint function graph"]
+        description: >-
+          Inspect the actual input arguments of a Blueprint function call in a named graph, including saved pin literals,
+          links and current live editor pin fields. Give the Blueprint path and graph name. Optionally narrow by member_name
+          or input pin name. Reports ambiguous calls with candidate export indices. Default compare reads the saved
+          package and the same node GUID in the attached editor, with independent statuses. Use source saved for disk
+          only. Current function identity, implicit arguments, live split-pin flags and runtime execution are unverified.
+        params:
+          asset_path: { type: string, required: true, description: "Blueprint package /Game/... or supported saved asset path" }
+          graph_name: { type: string, required: true, description: "Exact name of the function graph or EventGraph" }
+          member_name: { type: string, required: false, description: "Exact called Blueprint or native function member, e.g. SetActorScale3D" }
+          pin: { type: string, required: false, description: "Exact input pin name. Omit for all inputs." }
+          node_id: { type: string|integer, required: false, description: "Positive export index from the candidates if multiple calls match (number or numeric string)" }
+          source: { type: string, required: false, default: compare, description: "compare returns saved and verified editor observations. saved reads only package bytes." }
       bp_find_in_graph:
         description: >-
           Scope variant of find_blueprint_nodes — filter K2Nodes within a single
@@ -245,7 +260,8 @@ toolsets:
           disambiguation. Node class and member filters share semantics with
           find_blueprint_nodes. Use bp_list_graphs first to discover graph names.
           Offline (no editor/plugin/sidecar). Spatial fields (position,
-          comment, enabled_state) are first-class in match rows.
+          comment, enabled_state) are first-class in match rows. Pass node_id
+          (export index) to bp_show_node or node_guid to live show_pin_links.
         params:
           asset_path:   { type: string, required: true, description: "/Game/... path to a Blueprint .uasset" }
           graph_name:   { type: string, required: true, description: "Graph objectName as returned by bp_list_graphs (e.g., EventGraph, UserConstructionScript, MyFunctionName)." }
@@ -266,7 +282,7 @@ toolsets:
           handlers.
         params:
           asset_path:      { type: string, required: true, description: "/Game/... path to a Blueprint .uasset" }
-          comment_node_id: { type: string, required: true, description: "Comment node identifier — either the export_index as a string/integer, or the node's full objectName." }
+          comment_node_id: { type: string|integer, required: true, description: "Comment node identifier — either the export_index as a string/integer, or the node's full objectName." }
       bp_list_entry_points:
         description: >-
           Enumerate graph entry points — K2Node_Event, K2Node_CustomEvent, and
@@ -295,11 +311,14 @@ toolsets:
           the node's NodeGuid resolves in the topology, response advertises
           `pin_block` and `pin_defaults` in available_fields; otherwise
           (non-graph-node, malformed pin-block, no NodeGuid) pins=[] with
-          pin_block and pin_defaults in not_available. node_id accepts
+          pin_block and pin_defaults in not_available. For a graph node with
+          missing pin data under /Game, follow live_pin_lookup with an attached editor
+          to inspect current pins and defaults without writing a sidecar. node_id accepts
           export_index (integer or numeric string) or full node objectName.
+          For actual function arguments, inspect_blueprint_inputs compares saved and verified live inputs in one read.
         params:
           asset_path: { type: string, required: true, description: "/Game/... path to a Blueprint .uasset" }
-          node_id:    { type: string, required: true, description: "Node identifier — export_index (integer or numeric string) or full node objectName." }
+          node_id:    { type: string|integer, required: true, description: "Node identifier — export_index (integer or numeric string) or full node objectName." }
       bp_trace_exec:
         description: >-
           Walk the outgoing exec chain from a starting node in a specific
@@ -320,7 +339,7 @@ toolsets:
         params:
           asset_path:    { type: string, required: true, description: "/Game/... path to a Blueprint .uasset" }
           graph_name:    { type: string, required: true, description: "Graph name (EventGraph, ExecuteAbility, etc.) as returned by bp_list_graphs." }
-          start_node_id: { type: string, required: true, description: "NodeGuid (32 hex chars, no dashes). Accepts Oracle-A canonical (uppercase BE-per-uint32) OR M-spatial raw (lowercase byte-LE) — pipe directly from bp_list_entry_points.entry_points[].node_guid or bp_show_node.node.node_guid without reformatting." }
+          start_node_id: { type: string, required: true, description: "NodeGuid (32 hex chars, no dashes). Accepts engine-format digits or historical file-order digits — pipe directly from bp_list_entry_points.entry_points[].node_guid or bp_show_node.node.node_guid without reformatting." }
           max_depth:     { type: number, required: false, description: "BFS depth cap (default 50, range 1-500). Chain entries at depth=max_depth are included; their outgoing links are not followed." }
           pin_name:      { type: string, required: false, description: "Restrict walk to a single exec pin name (e.g., 'then', 'else'). Omit to follow all exec outputs." }
       bp_trace_data:
@@ -333,12 +352,12 @@ toolsets:
           depth. Exec classification (to exclude exec pins) is name-convention
           — see bp_trace_exec for the vocabulary. Offline. Missing graph
           returns `reason: "graph_not_found"`; missing node returns
-          `reason: "node_not_found"`. start_node_id accepts either Oracle-A
-          canonical or M-spatial raw NodeGuid form (see bp_trace_exec).
+          `reason: "node_not_found"`. start_node_id accepts either engine-format
+          or historical file-order NodeGuid digits (see bp_trace_exec).
         params:
           asset_path:    { type: string, required: true, description: "/Game/... path to a Blueprint .uasset" }
           graph_name:    { type: string, required: true, description: "Graph name as returned by bp_list_graphs." }
-          start_node_id: { type: string, required: true, description: "NodeGuid (32 hex chars, no dashes). Accepts Oracle-A canonical (uppercase BE-per-uint32) OR M-spatial raw (lowercase byte-LE) — pipe directly from bp_list_entry_points / bp_find_in_graph / bp_show_node output without reformatting." }
+          start_node_id: { type: string, required: true, description: "NodeGuid (32 hex chars, no dashes). Accepts engine-format digits or historical file-order digits — pipe directly from bp_list_entry_points / bp_find_in_graph / bp_show_node output without reformatting." }
           max_depth:     { type: number, required: false, description: "BFS depth cap (default 50, range 1-500)." }
       bp_neighbors:
         description: >-
@@ -350,12 +369,12 @@ toolsets:
           to avoid double-counting). Offline — uses Oracle-A-v2 topology.
           Use this for "what nodes connect to X" queries without walking a
           full chain; chain bp_trace_exec/bp_trace_data for deeper traversal.
-          node_id accepts either Oracle-A canonical or M-spatial raw
-          NodeGuid form (see bp_trace_exec).
+          node_id accepts either engine-format or historical file-order
+          NodeGuid digits (see bp_trace_exec).
         params:
           asset_path: { type: string, required: true, description: "/Game/... path to a Blueprint .uasset" }
           graph_name: { type: string, required: true, description: "Graph name as returned by bp_list_graphs." }
-          node_id:    { type: string, required: true, description: "Target NodeGuid (32 hex chars, no dashes). Accepts Oracle-A canonical (uppercase BE-per-uint32) OR M-spatial raw (lowercase byte-LE) — pipe directly from bp_list_entry_points / bp_find_in_graph / bp_show_node output without reformatting." }
+          node_id:    { type: string, required: true, description: "Target NodeGuid (32 hex chars, no dashes). Accepts engine-format digits or historical file-order digits — pipe directly from bp_list_entry_points / bp_find_in_graph / bp_show_node output without reformatting." }
           direction:  { type: string, required: false, description: "Edge direction: 'incoming' | 'outgoing' | 'both' (default 'both')." }
       list_data_sources:
         description: Aggregate CSV-backed data sources under Content/ — classifies DataTable vs StringTable CSVs
@@ -580,7 +599,7 @@ toolsets:
       add_function_node:
         mutates_asset: true
         wire_type: add_blueprint_function_node
-        description: Add function call node to a target graph. Supports target class, default pin values, and KismetMathLibrary vector/math/comparison functions. Returns pin metadata.
+        description: Add function call node to a target graph. Name the library or target class explicitly. Omit the owner to search the Blueprint class and its parents. Unknown input names and invalid defaults reject the edit. Returns the reflected function path and pin metadata.
         params:
           blueprint_name: { type: string, required: true, description: "Blueprint asset name" }
           function_name:  { type: string, required: true, description: "Function name to call" }
@@ -609,7 +628,7 @@ toolsets:
       add_function_graph:
         mutates_asset: true
         wire_type: add_blueprint_function_graph
-        description: Create a Blueprint function graph and return its FunctionEntry node with pin metadata. Idempotent by graph/function name.
+        description: Create a Blueprint function graph and return its FunctionEntry node with pin metadata. Reuses a matching function with one entry. A name collision with another graph kind rejects the edit.
         params:
           blueprint_name: { type: string, required: true, description: "Blueprint asset name" }
           function_name:  { type: string, required: true, description: "Function graph name to create" }
@@ -625,7 +644,10 @@ toolsets:
       add_variable_set:
         mutates_asset: true
         wire_type: add_blueprint_variable_set_node
-        description: Add member variable set node to a target Blueprint graph. Returns pin metadata.
+        description: >-
+          Add a setter for a member variable. To set Interacting true, pass params keyed by the
+          member name, for example { Interacting: true }. Choose the graph with graph_name.
+          Unknown arguments, unknown input pins and invalid defaults reject the edit.
         params:
           blueprint_name: { type: string, required: true, description: "Blueprint asset name" }
           variable_name:  { type: string, required: true, description: "Member variable name" }
@@ -666,7 +688,7 @@ toolsets:
         params:
           blueprint_name:   { type: string, required: true, description: "Blueprint asset name or fully-qualified /Game/... path" }
           target_variable:  { type: string, required: true, description: "Member variable written by the assignment set node" }
-          assignment:       { type: object, required: true, description: "{kind:'literal', value:<scalar/vector>} or {kind:'variable', source_variable:<name>}" }
+          assignment:       { type: object, required: true, description: "{kind:'literal', value:<scalar/vector>} or {kind:'variable', source_variable:<name>}. Numeric variables accept JSON numbers. Integer assignments use Unreal rounding and reject results outside int32." }
           exec_from:        { type: object, required: false, description: "Optional existing source exec pin: {node_id, pin}" }
           graph_name:       { type: string, required: false, description: "Target graph name. Omit for EventGraph." }
           node_position:    { type: array, required: false, description: "[x, y] graph position, default [0,0]" }
@@ -823,6 +845,21 @@ toolsets:
           mode: { type: string, required: true, description: "preview or apply" }
           node_position: { type: array, required: false, description: "Integer [x, y], defaults to edge midpoint" }
           compile: { type: boolean, required: false, description: "Compile on apply and return diagnostics. Default false." }
+      place_graph_action:
+        status: shipped
+        wire_type: place_graph_action
+        mutates_asset: true
+        description: >-
+          Place the exact asset-backed action selected by find_graph_actions. Reuses one matching input event or adds a new Sequence Player.
+          Before placing a Sequence Player, call find_graph_actions with the selected action's exact source_asset_path ("" for an empty Sequence Player) and record the GUIDs in placed_nodes.
+          After a lost response repeat the lookup. Retry only if comparing the GUIDs confirms the requested node is missing. Wire, compile and save explicitly.
+          For a repeating Hold trigger, set a held flag on Started (press). Clear it on both Completed (release after the hold triggers) and Canceled (early release).
+        params:
+          asset_path: { type: string, required: true, description: "Target Blueprint package path used during discovery" }
+          graph_guid: { type: string, required: true, description: "Resolved target graph GUID" }
+          expected_revision: { type: string, required: true, description: "Current topology_revision returned by discovery" }
+          action_id: { type: string, required: true, description: "Opaque ID from find_graph_actions on this attachment, editor and graph" }
+          node_position: { type: array, required: true, description: "Integer graph coordinates [x, y]" }
       place_anim_graph_node:
         status: shipped
         wire_type: place_anim_graph_node
@@ -848,7 +885,7 @@ toolsets:
           target_pin_id: { type: string, required: false, description: "Expected target pin GUID. Required for replacement." }
           replace_source_pin_id: { type: string, required: false, description: "Approve displacement of this upstream pin only." }
           expected_revision: { type: string, required: false, description: "Observed graph topology_revision. Required for replacement." }
-          graph_guid: { type: string, required: false, description: "Stable target graph GUID; supports nested animation state graphs" }
+          graph_guid: { type: string, required: false, description: "Target graph GUID for the pawn EventGraph or animation graph, including nested state graphs. A supplied graph name must match." }
           graph_name:     { type: string, required: false, description: "Target graph name. Omit for EventGraph." }
       show_pin_links:
         status: shipped
@@ -862,16 +899,18 @@ toolsets:
         compiles_asset: false
         offline_fallback: false
         wire_type: show_blueprint_pin_links
-        description: Read link identities from a named Blueprint graph pin. Returns source/target node and pin metadata without mutating the asset.
+        description: Inspect live Blueprint node pins, defaults and link counts. Omit pin to list all pins. Supply pin to read its links. Use this read-only lookup when saved pin data is unavailable.
         params:
           blueprint_name:    { type: string, required: true, description: "Blueprint asset name or fully-qualified /Game/... path" }
-          node_id:           { type: string, required: true, description: "Node GUID string" }
-          pin:               { type: string, required: true, description: "Pin name on node" }
+          node_id:           { type: string, required: false, description: "Engine GUID. Supply either node_id or node_name." }
+          node_name:         { type: string, required: false, description: "Exact node object name from the saved graph. Requires graph_name." }
+          pin:               { type: string, required: false, description: "Named pin for link inspection. Omit to list all pins and their defaults." }
           direction:         { type: string, required: false, description: "One of: input, output. Omit to search both directions." }
           target_node_id:    { type: string, required: false, description: "Optional linked node GUID filter" }
           target_pin:        { type: string, required: false, description: "Optional linked pin name filter" }
           target_direction:  { type: string, required: false, description: "One of: input, output. Omit to infer the opposite direction." }
           graph_name:        { type: string, required: false, description: "Target graph name. Omit for EventGraph." }
+          graph_guid:        { type: string, required: false, description: "Current graph GUID. A supplied graph name must match." }
       disconnect_pin:
         status: shipped
         availability_layer: tcp-55558
@@ -897,6 +936,7 @@ toolsets:
           target_pin:        { type: string, required: false, description: "Optional target pin name for a specific link" }
           target_direction:  { type: string, required: false, description: "One of: input, output. Omit to infer the opposite direction." }
           graph_name:        { type: string, required: false, description: "Target graph name. Omit for EventGraph." }
+          graph_guid:        { type: string, required: false, description: "Current graph GUID. A supplied graph name must match." }
           dry_run:           { type: boolean, required: false, default: false, description: "If true, report matching links without disconnecting or compiling. Default false." }
           compile:           { type: boolean, required: false, default: false, description: "If true, compile after disconnecting. Default false." }
       delete_nodes:
@@ -1041,7 +1081,8 @@ toolsets:
       add_input_action_node:
         mutates_asset: true
         wire_type: add_blueprint_input_action_node
-        description: Add input action event node (legacy Input Actions, NOT Enhanced Input). Only marks BP modified — call compile_blueprint to materialize the new node into the generated class.
+        aliases: ["legacy input mapping"]
+        description: Add a legacy named input mapping event. Only marks BP modified. Call compile_blueprint before using the generated class. For asset-backed events use find_graph_actions.
         params:
           blueprint_name: { type: string, required: true, description: "Blueprint asset name (works on any BP, not just widgets)" }
           action_name:    { type: string, required: true, description: "Input action name" }
@@ -1100,6 +1141,19 @@ toolsets:
     # milestone (M2-Phase-A). The 9 sidecar traversal verbs (bp_list_graphs,
     # bp_trace_exec, etc.) will land in the offline toolset, not here.
     tools:
+      find_graph_actions:
+        status: shipped
+        wire_type: find_graph_actions
+        mutates_asset: false
+        aliases: ["bind Enhanced Input action to pawn", "play animation sequence in AnimGraph", "asset-specific Blueprint graph action"]
+        description: Discover graph actions to bind an Enhanced Input action to a pawn Event Graph or play an Animation Sequence in an AnimGraph. Search by exact source asset path to inspect existing nodes. Pass the selected ID and graph revision to place_graph_action.
+        params:
+          asset_path: { type: string, required: true, description: "Target Blueprint package path" }
+          graph_name: { type: string, required: false, description: "Target EventGraph or AnimGraph. Supply either its name or its GUID." }
+          graph_guid: { type: string, required: false, description: "Target graph GUID. A supplied graph name must match." }
+          source_asset_path: { type: string, required: false, description: "Exact Enhanced Input Action or Animation Sequence path. An empty string selects the empty Sequence Player variant." }
+          query: { type: string, required: false, description: "Search text for the supported graph actions" }
+          limit: { type: number, required: false, description: "Integer result limit from 1 to 100, default 25" }
       # reduced_scope: runtime-reflected interface list + UClass flags only (structural fields shipped offline per D37)
       # displaced_by: inspect_blueprint, query_asset_registry, read_asset_properties
       get_blueprint_info:
@@ -1136,7 +1190,7 @@ toolsets:
       # cannot — void return per D66 / FA-ε §Q1.4).
       bp_compile_and_report:
         compiles_asset: true
-        description: Compile a Blueprint and return errors + warnings + notes + info with per-entry node_guid.
+        description: Recompile a Blueprint, regenerating its generated class, and return errors, warnings, notes and info with per-entry node_guid. Requires mutation permission.
         params:
           asset_path: { type: string, required: true }
       # reduced_scope: widget hierarchy tree + property bindings only — EventGraph + functions subset MOVE-TO-SIDECAR (3F) per D56/§Q1.2
@@ -1204,11 +1258,27 @@ toolsets:
         saves_asset: false
         compiles_asset: false
         offline_fallback: false
-        description: Add named section to montage at specified time
+        description: Add a uniquely named section at an unoccupied time strictly before the animation ends. Playback links are edited separately.
         params:
           asset_path:    { type: string, required: true }
           section_name:  { type: string, required: true }
           time:          { type: number, required: true }
+      set_montage_next_section:
+        status: shipped
+        availability_layer: tcp-55558
+        transport_layer: tcp-55558
+        requires_editor: true
+        requires_pie: false
+        mutates_asset: true
+        mutates_level: false
+        saves_asset: false
+        compiles_asset: false
+        offline_fallback: false
+        description: Set the outgoing playback link of an existing montage section. Read links with get_montage_full.
+        params:
+          asset_path:   { type: string, required: true }
+          section_name: { type: string, required: true, description: Existing source section }
+          next_section: { type: string, required: true, description: "Existing destination section, including self for a loop, or an empty string to end playback." }
       add_montage_notify:
         status: shipped
         availability_layer: tcp-55558
@@ -1220,7 +1290,7 @@ toolsets:
         saves_asset: false
         compiles_asset: false
         offline_fallback: false
-        description: Add AnimNotify/AnimNotifyState at specified time
+        description: Add an instantaneous cue through the animation endpoint or a state whose 0.1 second duration fits. Near-end delivery depends on blend-out.
         params:
           asset_path:    { type: string, required: true }
           notify_class:  { type: string, required: true }

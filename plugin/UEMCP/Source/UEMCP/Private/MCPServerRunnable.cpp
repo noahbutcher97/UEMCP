@@ -235,6 +235,7 @@ void FMCPServerRunnable::ServeOneConnection(FSocket* ClientSocket, double Accept
 		break;
 
 	case EMCPRequestReadOutcome::Malformed:
+	{
 		UEMCP_WARN(
 			"event=tcp_intake_malformed framing=%s bytes=%lld declared=%lld elapsedMs=%.1f reason=%s",
 			FramingName(ReadResult.Framing),
@@ -242,11 +243,18 @@ void FMCPServerRunnable::ServeOneConnection(FSocket* ClientSocket, double Accept
 			ReadResult.DeclaredBodyLength,
 			ReadResult.ElapsedMs,
 			*ReadResult.ReasonCode);
-		UEMCP::BuildErrorResponse(
-			ResponseJson,
-			TEXT("malformed request transport object"),
-			TEXT("MALFORMED_REQUEST"));
+		const TCHAR* Message = TEXT("malformed request transport object");
+		if (ReadResult.ReasonCode == TEXT("nul_in_object_key"))
+		{
+			Message = TEXT("JSON object keys cannot contain U+0000. Remove the NUL character from the key and retry.");
+		}
+		else if (ReadResult.ReasonCode == TEXT("ambiguous_object_keys"))
+		{
+			Message = TEXT("This engine treats these object keys as the same name. Give keys in the same object distinct names and retry.");
+		}
+		UEMCP::BuildErrorResponse(ResponseJson, Message, TEXT("MALFORMED_REQUEST"));
 		break;
+	}
 
 	case EMCPRequestReadOutcome::TooLarge:
 		UEMCP_WARN(
