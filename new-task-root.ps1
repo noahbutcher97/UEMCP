@@ -43,6 +43,11 @@ Owned processes:
 
 ## Closeout
 
+From $PSScriptRoot, use ./clear-task-output.ps1 first for each retired output.
+Preview its literal run-relative path, check the target and bytes, then apply the
+returned PreviewId. Follow AGENTS.md, "Worktree and scratch cleanup", for the
+commands and final removal of the run records and empty directory.
+
 Record live paths, sizes, receipts, removals and the next use of each retained output.
 "@
 # Publish both records together. A same-volume directory move refuses an

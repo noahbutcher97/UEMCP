@@ -83,6 +83,31 @@ them. Attach to the supplied task path when resuming. Ordinary tests that alread
 use and clean their own temporary directories can continue doing so.
 
 The coordinator owns cleanup across workers. Fill in `RUN.md` at allocation.
+
+For every disposable file or directory inside a run created by
+`new-task-root.ps1` (including `-ExternalFixture` runs), **start cleanup with
+`clear-task-output.ps1`**. Never try a manual or recursive delete first or
+use one to bypass a refusal. In PowerShell 7.2+ from the checkout, set
+`$taskRoot` to the allocated run path and `$output` to the literal relative
+path of one retired output. Pass any recorded owner PIDs with
+`-OwnerProcessId` on both calls.
+
+```powershell
+$preview = ./clear-task-output.ps1 -RunRoot $taskRoot -Output $output
+$preview
+# Check State, RunId, Path and Bytes against the run record before applying.
+./clear-task-output.ps1 -RunRoot $taskRoot -Output $output -Apply $preview.PreviewId
+```
+
+Apply only a matching `Preview`. Verify the path is absent after removal.
+If the output changed or cleanup was interrupted, inspect what remains before
+generating a fresh preview.
+
+At final closeout, verify the run identity and copy the closeout receipt outside
+the run. Once only `RUN.md` and `.uemcp-run.json` remain, remove those two
+reserved records by literal path, remove the empty run directory nonrecursively,
+and verify it is absent.
+
 Before a large copy, check free space and the size of the selected files. Prefer
 the installed toolchain and a private profile. Record why any engine copy is
 needed, what can be excluded, and when it will be removed. Keep only one active
