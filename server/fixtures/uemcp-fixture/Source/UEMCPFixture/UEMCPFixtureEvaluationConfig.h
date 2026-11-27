@@ -13,6 +13,9 @@ struct FUEMCPFixtureEvaluationSettings
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Evaluation")
 	int32 Seed = 17;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Evaluation")
+	FVector Offset = FVector(1.0, 2.0, 3.0);
 };
 
 UCLASS(BlueprintType)

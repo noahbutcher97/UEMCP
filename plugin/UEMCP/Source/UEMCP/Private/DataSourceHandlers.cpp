@@ -15,6 +15,8 @@
 #include "Internationalization/StringTableCore.h"
 #include "Misc/PackageName.h"
 #include "ScopedTransaction.h"
+#include "TransformParser.h"
+#include "UObject/PropertyTempVal.h"
 #include "UObject/Package.h"
 #include "UObject/SoftObjectPath.h"
 #include "UObject/UnrealType.h"
@@ -153,6 +155,45 @@ namespace UEMCP
 			return true;
 		}
 
+		TSharedPtr<FJsonValue> ReadDataAssetValue(const FNumericProperty* Numeric, const void* Address)
+		{
+			if (Numeric)
+			{
+				const double Number = Numeric->IsInteger() ? Numeric->GetSignedIntPropertyValue(Address) : Numeric->GetFloatingPointPropertyValue(Address);
+				if (!FMath::IsFinite(Number)) return nullptr;
+				return MakeShared<FJsonValueNumber>(Number);
+			}
+			const FVector& Vector = *static_cast<const FVector*>(Address);
+			if (Vector.ContainsNaN()) return nullptr;
+			return MakeShared<FJsonValueArray>(TArray<TSharedPtr<FJsonValue>>{
+				MakeShared<FJsonValueNumber>(Vector.X), MakeShared<FJsonValueNumber>(Vector.Y), MakeShared<FJsonValueNumber>(Vector.Z)});
+		}
+
+		bool PrepareDataAssetValue(const TSharedPtr<FJsonObject>& Params, const FProperty* Property, const FNumericProperty* Numeric, void* OutValue)
+		{
+			if (Numeric)
+			{
+				double Value;
+				if (!Params->HasTypedField<EJson::Number>(TEXT("value")) || !Params->TryGetNumberField(TEXT("value"), Value) ||
+					!CoerceDataAssetNumber(Numeric, Value)) return false;
+				if (Numeric->IsInteger()) Numeric->SetIntPropertyValue(OutValue, static_cast<int64>(Value));
+				else Numeric->SetFloatingPointPropertyValue(OutValue, Value);
+				return true;
+			}
+
+			const TArray<TSharedPtr<FJsonValue>>* Items;
+			if (!Params->TryGetArrayField(TEXT("value"), Items) || Items->Num() != 3) return false;
+			for (const TSharedPtr<FJsonValue>& Item : *Items)
+			{
+				if (!Item || Item->Type != EJson::Number) return false;
+			}
+			FVector& Vector = *static_cast<FVector*>(OutValue);
+			FString Error;
+			return ParseVector3(Params, TEXT("value"), Vector, Error) && !Vector.ContainsNaN() &&
+				(!Property->HasMetaData(TEXT("ClampMin")) || Vector.GetMin() >= Property->GetDoubleMetaData(TEXT("ClampMin"))) &&
+				(!Property->HasMetaData(TEXT("ClampMax")) || Vector.GetMax() <= Property->GetDoubleMetaData(TEXT("ClampMax")));
+		}
+
 		void HandleDataAssetProperty(const TSharedPtr<FJsonObject>& Params, TSharedPtr<FJsonObject>& OutResponse, bool bWrite)
 		{
 			FString Path, PropertyName;
@@ -219,17 +260,16 @@ namespace UEMCP
 					Owner = Struct->Struct;
 				}
 			}
-			if (!CastField<FIntProperty>(Property) && !CastField<FFloatProperty>(Property) && !CastField<FDoubleProperty>(Property))
+			const FStructProperty* Struct = CastField<FStructProperty>(Property);
+			const bool bVector = Struct && Struct->Struct == TBaseStructure<FVector>::Get();
+			if (!bVector && !CastField<FIntProperty>(Property) && !CastField<FFloatProperty>(Property) && !CastField<FDoubleProperty>(Property))
 			{
-				BuildErrorResponse(OutResponse, TEXT("Supported leaves are int32, float and double"), TEXT("UNSUPPORTED_PROPERTY"));
+				BuildErrorResponse(OutResponse, TEXT("Supported leaves are int32, float, double and FVector"), TEXT("UNSUPPORTED_PROPERTY"));
 				return;
 			}
-			const FNumericProperty* Leaf = CastFieldChecked<FNumericProperty>(Property);
-			const auto Read = [&]() -> double {
-				return Leaf->IsInteger() ? Leaf->GetSignedIntPropertyValue(Address) : Leaf->GetFloatingPointPropertyValue(Address);
-			};
-			const double Previous = Read();
-			if (!FMath::IsFinite(Previous))
+			const FNumericProperty* Numeric = CastField<FNumericProperty>(Property);
+			const TSharedPtr<FJsonValue> Previous = ReadDataAssetValue(Numeric, Address);
+			if (!Previous)
 			{
 				BuildErrorResponse(OutResponse, TEXT("Existing value cannot be represented as a JSON number"), TEXT("INVALID_VALUE"));
 				return;
@@ -237,32 +277,38 @@ namespace UEMCP
 			TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
 			if (bWrite)
 			{
-				double Value;
-				if (!Params->HasTypedField<EJson::Number>(TEXT("value")) || !Params->TryGetNumberField(TEXT("value"), Value) ||
-					!CoerceDataAssetNumber(Leaf, Value))
+				FPropertyTempVal NewValue(Property);
+				if (!PrepareDataAssetValue(Params, Property, Numeric, NewValue.Get()))
 				{
-					BuildErrorResponse(OutResponse, TEXT("Supply a JSON number within the field's type and clamp bounds"), TEXT("INVALID_VALUE"));
+					BuildErrorResponse(OutResponse, bVector ? TEXT("Expected three finite numbers [X,Y,Z] within the field bounds") :
+						TEXT("Supply a JSON number within the field's type and clamp bounds"), TEXT("INVALID_VALUE"));
 					return;
 				}
-				if (Value != Previous)
+				const bool bChange = !Property->Identical(Address, NewValue.Get(), 0);
+				if (bChange)
 				{
 					const FScopedTransaction Transaction(NSLOCTEXT("UEMCP", "SetDataAssetProperty", "Edit DataAsset property"));
 					Asset->SetFlags(RF_Transactional);
 					Asset->Modify();
 					Asset->PreEditChange(Chain);
-					if (Leaf->IsInteger()) Leaf->SetIntPropertyValue(Address, static_cast<int64>(Value));
-					else Leaf->SetFloatingPointPropertyValue(Address, Value);
+					Property->CopyCompleteValue(Address, NewValue.Get());
 					FPropertyChangedEvent Event(Property, EPropertyChangeType::ValueSet);
 					Event.SetActiveMemberProperty(Chain.GetHead()->GetValue());
 					FPropertyChangedChainEvent Change(Chain, Event);
 					Asset->PostEditChangeChainProperty(Change);
 				}
-				Result->SetNumberField(TEXT("previous_value"), Previous);
-				Result->SetBoolField(TEXT("changed"), Previous != Read());
+				Result->SetField(TEXT("previous_value"), Previous);
 			}
 			Result->SetStringField(TEXT("asset_path"), Asset->GetOutermost()->GetName());
 			Result->SetStringField(TEXT("property_name"), PropertyName);
-			Result->SetNumberField(TEXT("value"), Read());
+			const TSharedPtr<FJsonValue> Current = bWrite ? ReadDataAssetValue(Numeric, Address) : Previous;
+			if (!Current)
+			{
+				BuildErrorResponse(OutResponse, TEXT("Editor callback produced a non-finite value; inspect the asset and use Undo"), TEXT("INVALID_VALUE"));
+				return;
+			}
+			Result->SetField(TEXT("value"), Current);
+			if (bWrite) Result->SetBoolField(TEXT("changed"), !FJsonValue::CompareEqual(*Previous, *Current));
 			Result->SetBoolField(TEXT("dirty"), Asset->GetOutermost()->IsDirty());
 			BuildSuccessResponse(OutResponse, Result);
 		}

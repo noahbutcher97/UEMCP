@@ -181,7 +181,9 @@ Mark a unit complete after its acceptance review records the supported scope.
 - [x] [Create a DataAsset](../docs/plans/editor-workflow-gaps.md#1-create-a-dataasset) under U8/EN-30. Creation, explicit save, collision recovery and fresh-editor readback verified on Win64 UE 5.8.4.
 - [ ] [Edit nested DataAsset properties](../docs/plans/editor-workflow-gaps.md#2-edit-nested-dataasset-properties) under U8/EN-30.
   - [x] Change the fixture threshold to 0.25, preserve seed 17 and verify Undo, Redo and save/reopen on UE 5.8.4.
-  - [ ] Review and test whole vectors, indexed arrays and typed references individually.
+  - [x] Verify the scalar workflow on UE 5.9 Preview 2, including creation and fresh-process readback.
+  - [x] Edit a whole FVector in one transaction on UE 5.8.4 and 5.9 Preview 2.
+  - [ ] Review and test indexed arrays and typed references individually.
 - [ ] [Open an editor map](../docs/plans/editor-workflow-gaps.md#3-open-an-editor-map).
 - [ ] [Run an evaluation headlessly](../docs/plans/editor-workflow-gaps.md#4-run-an-evaluation-headlessly).
 - [ ] [Manage long-running evaluation and training jobs](../docs/plans/editor-workflow-gaps.md#5-manage-long-running-evaluation-and-training-jobs).

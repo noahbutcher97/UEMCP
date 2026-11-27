@@ -714,6 +714,15 @@ console.log('\n── Group 25: P0-10 Vector Shape Validation ──');
     const current = await executeMenhanceTool('get_data_asset_property', field, cm);
     t.assert(fake.callsFor('get_data_asset_property').length === 2 && current.result.value === 0.25,
       'live DataAsset reads observe intervening editor changes');
+    const offset = { ...field, property_name: 'Settings.Offset' };
+    fake.on('set_data_asset_property', { status: 'success', result: { changed: true } });
+    await executeMenhanceTool('set_data_asset_property', { ...offset, value: [11, -22, 33] }, cm);
+    for (const value of [[1, 2], [1, '2', 3], [1, 2, 3, 4], [1, Infinity, 3]]) {
+      await t.assertRejects(() => executeMenhanceTool('set_data_asset_property', { ...offset, value }, cm),
+        /value/i, 'invalid vector is rejected before dispatch');
+    }
+    t.assert(fake.callsFor('set_data_asset_property').length === 1, 'only the complete numeric vector reaches the editor');
+
   }
 
   // ── Zod validation + unknown-tool rejection ───────────────────

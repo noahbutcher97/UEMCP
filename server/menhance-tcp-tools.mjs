@@ -376,7 +376,7 @@ export const MENHANCE_SCHEMAS = {
   },
 
   get_data_asset_property: {
-    description: 'Read a numeric DataAsset field from the editor, including nested and unsaved values. Returns value and package dirty state.',
+    description: 'Read a numeric or FVector DataAsset field from the editor, including nested and unsaved values. Returns value and package dirty state. Vectors use [X,Y,Z].',
     structuredErrors: true,
     unknownArgumentMessage: 'Use asset_path and property_name.',
     schema: dataAssetProperty,
@@ -384,10 +384,10 @@ export const MENHANCE_SCHEMAS = {
   },
 
   set_data_asset_property: {
-    description: 'Edit one int32, float or double DataAsset field in an undoable transaction. Provide a dotted field path for a nested struct. Returns prior and current values. Call save_asset separately to persist.',
+    description: 'Edit one numeric or FVector DataAsset field in an undoable transaction. Supply one number or the complete vector [X,Y,Z]. Provide a dotted field path for a nested struct. Returns prior and current values. Call save_asset separately to persist.',
     structuredErrors: true,
-    unknownArgumentMessage: 'Use asset_path, property_name and a numeric value.',
-    schema: { ...dataAssetProperty, value: z.number().finite() },
+    unknownArgumentMessage: 'Use asset_path, property_name and value.',
+    schema: { ...dataAssetProperty, value: z.union([z.number().finite(), z.array(z.number().finite()).length(3)]) },
     isReadOp: false,
   },
 
