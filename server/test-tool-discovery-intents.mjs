@@ -37,6 +37,7 @@ function assertTopIncludesAny(query, expectedAny, maxResults = 5) {
 assertTopIncludes('create data asset from subclass', 'create_data_asset');
 assertTopIncludes('edit nested numeric data asset property', 'set_data_asset_property');
 assertTopIncludes('read unsaved data asset property', 'get_data_asset_property');
+assertTopIncludes('open saved editor map', 'open_map');
 assertTopIncludes('blueprint graph pins saved function inspect', 'inspect_blueprint_inputs');
 assertTopIncludes('blueprint node pins function call arguments', 'inspect_blueprint_inputs');
 assertTopIncludes('who references this asset', 'get_asset_references');

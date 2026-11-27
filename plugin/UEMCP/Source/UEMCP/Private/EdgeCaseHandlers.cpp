@@ -16,12 +16,14 @@
 #include "Engine/Blueprint.h"
 #include "Engine/Engine.h"
 #include "Engine/Level.h"
+#include "Engine/MapBuildDataRegistry.h"
 #include "Engine/Selection.h"
 #include "Engine/World.h"
 #include "GameFramework/Actor.h"
 #include "Interfaces/IPluginManager.h"
 #include "Kismet2/KismetEditorUtilities.h"
 #include "LevelEditorViewport.h"
+#include "LevelEditorSubsystem.h"
 #include "Misc/App.h"
 #include "Misc/FileHelper.h"
 #include "Misc/PackageName.h"
@@ -140,6 +142,84 @@ namespace UEMCP
 			{
 				Result->SetArrayField(TEXT("identity_warnings"), Warnings);
 			}
+		}
+
+		FString FindDirtyLevelPackage(const UWorld& World)
+		{
+			for (const ULevel* Level : World.GetLevels())
+			{
+				if (!Level) continue;
+				if (Level->GetPackage()->IsDirty()) return Level->GetPackage()->GetName();
+				if (Level->MapBuildData && Level->MapBuildData->GetPackage()->IsDirty())
+					return Level->MapBuildData->GetPackage()->GetName();
+				for (UPackage* Package : Level->GetLoadedExternalObjectPackages())
+				{
+					if (Package && Package->IsDirty() && !(Package->HasAnyPackageFlags(PKG_NewlyCreated) && UPackage::IsEmptyPackage(Package)))
+						return Package->GetName();
+				}
+			}
+			return FString();
+		}
+
+		void HandleOpenMap(const TSharedPtr<FJsonObject>& Params, TSharedPtr<FJsonObject>& OutResponse)
+		{
+			FString Path;
+			if (!Params || !Params->TryGetStringField(TEXT("map_path"), Path) || Path.Len() > 512 ||
+				!Path.StartsWith(TEXT("/Game/"), ESearchCase::CaseSensitive) || !FPackageName::IsValidLongPackageName(Path))
+			{
+				BuildErrorResponse(OutResponse, TEXT("Supply a /Game map package path without an extension"), TEXT("INVALID_PATH"));
+				return;
+			}
+			if (!GEditor || !GEditor->GetEditorWorldContext().World())
+			{
+				BuildErrorResponse(OutResponse, TEXT("No active editor world"), TEXT("EDITOR_UNAVAILABLE"));
+				return;
+			}
+			if (GEditor->IsPlaySessionInProgress() || GEditor->IsPlaySessionRequestQueued())
+			{
+				BuildErrorResponse(OutResponse, TEXT("End the play session before opening a map"), TEXT("PIE_ACTIVE"));
+				return;
+			}
+			UWorld* World = GEditor->GetEditorWorldContext().World();
+			const FString Previous = World->GetPackage()->GetName();
+			FString Filename;
+			if (!FPackageName::DoesPackageExist(Path, &Filename))
+			{
+				BuildErrorResponse(OutResponse, TEXT("No saved package at the requested path"), TEXT("MAP_NOT_FOUND"));
+				return;
+			}
+			if (!Filename.EndsWith(FPackageName::GetMapPackageExtension()))
+			{
+				BuildErrorResponse(OutResponse, TEXT("Requested package is not a map"), TEXT("NOT_A_MAP"));
+				return;
+			}
+			if (Previous != Path)
+			{
+				const FString DirtyPackage = FindDirtyLevelPackage(*World);
+				if (!DirtyPackage.IsEmpty())
+				{
+					BuildErrorResponse(OutResponse, FString::Printf(TEXT("Unsaved level changes in %s. Save your level edits and retry."), *DirtyPackage), TEXT("UNSAVED_MAP_CHANGES"));
+					return;
+				}
+				ULevelEditorSubsystem* Levels = GEditor->GetEditorSubsystem<ULevelEditorSubsystem>();
+				if (!Levels || !Levels->LoadLevel(Path))
+				{
+					BuildErrorResponse(OutResponse, TEXT("Editor could not load the requested map; check get_editor_state before retrying"), TEXT("MAP_LOAD_FAILED"));
+					return;
+				}
+			}
+			World = GEditor->GetEditorWorldContext().World();
+			if (!World || World->GetPackage()->GetName() != Path)
+			{
+				BuildErrorResponse(OutResponse, TEXT("Active editor world differs from the requested map; check get_editor_state"), TEXT("MAP_LOAD_FAILED"));
+				return;
+			}
+			TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+			Result->SetStringField(TEXT("world_path"), World->GetPathName());
+			Result->SetStringField(TEXT("map_path"), World->GetPackage()->GetName());
+			Result->SetStringField(TEXT("previous_map_path"), Previous);
+			Result->SetBoolField(TEXT("changed"), Previous != Path);
+			BuildSuccessResponse(OutResponse, Result);
 		}
 
 		void HandleGetEditorState(const TSharedPtr<FJsonObject>& /*Params*/, TSharedPtr<FJsonObject>& OutResponse)
@@ -1047,6 +1127,7 @@ namespace UEMCP
 	void RegisterEdgeCaseHandlers(FMCPCommandRegistry& Registry)
 	{
 		Registry.Register(TEXT("get_editor_state"),        &HandleGetEditorState);
+		Registry.Register(TEXT("open_map"),                &HandleOpenMap);
 		Registry.Register(TEXT("start_pie"),               &HandleStartPie);
 		Registry.Register(TEXT("stop_pie"),                &HandleStopPie);
 		Registry.Register(TEXT("is_pie_running"),          &HandleIsPieRunning);

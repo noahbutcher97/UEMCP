@@ -49,7 +49,11 @@ For server or tool changes, run `npm test` from `server/`. For native changes, r
 
 ## 3. Open an editor map
 
-**Starting point.** “Open the evaluation map and tell me which map is active.” Seed two maps and an unsaved edit. Unreal's native loader closes the current persistent level without saving it. [Epic's Load Level contract](https://dev.epicgames.com/documentation/en-us/unreal-engine/BlueprintAPI/EditorScripting/LevelUtility/LoadLevel)
+**Starting point.** “Open the evaluation map and tell me which map is active.” On UE 5.8.4, calling the level subsystem's default loader directly switched maps and lost an unsaved fixture actor. UE 5.9 Preview 2 refused the same call and preserved the actor.
+
+**Tool contract.** Pass a saved package name such as `/Game/Evaluation/MapB` as `map_path` to `open_map`. The result contains the observed package, the full world object path, the previous package and whether the world changed. Requesting the active map preserves its unsaved edits. When a switch would displace dirty level data, the tool returns `UNSAVED_MAP_CHANGES` with the package name. Save the edits explicitly and retry. If the client times out during a load, check `get_editor_state` before issuing another request.
+
+**Acceptance on Win64 UE 5.8.4 and 5.9 Preview 2.** A fresh provider client configured and saved the DataAsset and opened map B. An independent editor read found B's unique actor. Automated checks covered opening B twice, a missing map, a non-map asset, active PIE and unsaved map A edits. The loader refused the unsafe switch, kept the actor, and succeeded after an explicit save. The fixture also exercises a loaded streaming sublevel. World Partition external actors and slow-load timeout recovery require separate live qualification.
 
 - **Design review.** Define the accepted map path, project ownership, PIE behavior and which unsaved packages switching would displace. Choose a recoverable response for unsaved work. Include related level packages in the fixture wherever the implementation claims support.
 - **Implementation checkpoints.** Resolve the target and check the current editor world before invoking the level subsystem. Handle reopening the active map. Report the observed world package after loading. On a slow load, let the client reconcile the outcome before retrying.

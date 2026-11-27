@@ -723,6 +723,11 @@ console.log('\n── Group 25: P0-10 Vector Shape Validation ──');
     }
     t.assert(fake.callsFor('set_data_asset_property').length === 1, 'only the complete numeric vector reaches the editor');
 
+    fake.on('open_map', { status: 'success', result: { changed: false } });
+    for (let attempt = 0; attempt < 2; attempt++) {
+      await executeMenhanceTool('open_map', { map_path: '/Game/Maps/Evaluation' }, cm);
+    }
+    t.assert(fake.callsFor('open_map').length === 2, 'repeated map requests check the actual editor world');
   }
 
   // ── Zod validation + unknown-tool rejection ───────────────────

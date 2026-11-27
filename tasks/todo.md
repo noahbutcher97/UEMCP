@@ -184,7 +184,7 @@ Mark a unit complete after its acceptance review records the supported scope.
   - [x] Verify the scalar workflow on UE 5.9 Preview 2, including creation and fresh-process readback.
   - [x] Edit a whole FVector in one transaction on UE 5.8.4 and 5.9 Preview 2.
   - [ ] Review and test indexed arrays and typed references individually.
-- [ ] [Open an editor map](../docs/plans/editor-workflow-gaps.md#3-open-an-editor-map).
+- [x] [Open an editor map](../docs/plans/editor-workflow-gaps.md#3-open-an-editor-map) on UE 5.8.4 and 5.9 Preview 2, including unsaved-change recovery.
 - [ ] [Run an evaluation headlessly](../docs/plans/editor-workflow-gaps.md#4-run-an-evaluation-headlessly).
 - [ ] [Manage long-running evaluation and training jobs](../docs/plans/editor-workflow-gaps.md#5-manage-long-running-evaluation-and-training-jobs).
 - [ ] [Author PhysicsAsset bodies and constraints](../docs/plans/editor-workflow-gaps.md#6-author-physicsasset-bodies-and-constraints).

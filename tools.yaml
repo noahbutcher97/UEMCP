@@ -1810,6 +1810,20 @@ toolsets:
       get_editor_state:
         description: Current level, selected actors, viewport info
         params: {}
+      open_map:
+        status: shipped
+        availability_layer: tcp-55558
+        transport_layer: tcp-55558
+        requires_editor: true
+        requires_pie: false
+        mutates_asset: false
+        mutates_level: true
+        saves_asset: false
+        compiles_asset: false
+        offline_fallback: false
+        description: Open a saved project map in the editor. Use its /Game package path. Refuses active PIE and unsaved level edits. Reopening the active map keeps its edits. Check get_editor_state after a timeout.
+        params:
+          map_path: { type: string, required: true }
       run_python_command:
         status: shipped
         availability_layer: tcp-55558

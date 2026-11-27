@@ -20,7 +20,7 @@ const MUTATIONS = [
   'spawn_actor', 'delete_actor', 'set_actor_transform', 'set_actor_property', 'set_data_asset_property',
   'spawn_blueprint_actor', 'create_procedural_mesh', 'mesh_boolean', 'generate_uvs',
   'add_widget_to_viewport', 'run_editor_utility',
-  'focus_viewport', 'details_panel_expand_all', 'details_panel_scroll',
+  'open_map', 'focus_viewport', 'details_panel_expand_all', 'details_panel_scroll',
   'regenerate_sidecar', 'take_screenshot', 'get_asset_preview_render',
   'get_viewport_screenshot', 'capture_asset_editor', 'capture_pie_viewport',
 ];
@@ -101,8 +101,8 @@ function freshExecutorArgs(name, args) {
 }
 
 try {
-  assert.equal(MUTATIONS.length, 38);
-  assert.equal(new Set(MUTATIONS).size, 38);
+  assert.equal(MUTATIONS.length, 39);
+  assert.equal(new Set(MUTATIONS).size, 39);
   app = await createUemcpServer({
     env: {}, cwd: scratch, workspaceRoots: [], writeProjectCodenames: false,
     processInspector: () => [], stderr: { write() {} },

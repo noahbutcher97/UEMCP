@@ -107,6 +107,14 @@ export const MENHANCE_SCHEMAS = {
     isReadOp: false,
   },
 
+  open_map: {
+    description: 'Open a saved /Game map in the editor by package path. Unsaved level edits must be saved explicitly first. Returns the observed map_path and world_path. After a timeout check get_editor_state before retrying.',
+    structuredErrors: true,
+    unknownArgumentMessage: 'Use map_path, for example /Game/Maps/Evaluation.',
+    schema: { map_path: z.string().min(1).max(512).describe('Saved /Game map package without file extension') },
+    isReadOp: false,
+  },
+
   start_pie: {
     description: 'Launch Play In Editor (viewport, standalone, new_window)',
     schema: {
