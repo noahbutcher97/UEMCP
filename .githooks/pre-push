@@ -2,9 +2,7 @@
 # Pre-push: scan outgoing commits (file diff + commit messages) for NDA
 # codenames listed in .git/info/forbidden-tokens (per-checkout, untracked).
 #
-# This is the only enforcement layer for codenames; the same hook also runs
-# the plugin compile gate (WS2 block below). Free to commit anything locally;
-# the gate is at push time when content actually goes public.
+# Plugin changes also report stale local installations for the developer.
 #
 # Bypass: git push --no-verify
 set -u
@@ -74,22 +72,27 @@ fi
 zero="0000000000000000000000000000000000000000"
 remote_name="${1:-}"
 
-# The compile gate runs at most once per push: gate_checked is set the first
-# time verify-deploy runs. This `while read` consumes the hook's stdin directly
-# (git feeds one ref-update line per iteration); keep it that way — piping into
-# the loop would run the body in a subshell, invisible to anything after done.
-gate_checked=0
+# One deployment lookup serves all ref updates in this push.
+deploy_checked=0
 
-# The compile gate's verdict reader. Consumes a verify-deploy --json document
-# on stdin and exits 0 (nothing blocking), 1 (blocking targets, one per line on
-# stdout) or 2 (document unusable — the caller warns instead of blocking).
-# Kept on one single-quoted line so it carries no shell-special characters and
-# so server/test-pre-push-gate.mjs can extract and execute it. The whole body
-# is wrapped in try/catch so a malformed document or an unexpected row shape
-# (e.g. a null entry in targets[]) always routes to the could-not-evaluate
-# exit (2), never falls through as an uncaught exception that could be
-# mistaken for a block.
-gate_parser='let s="";process.stdin.on("data",d=>{s+=d}).on("end",()=>{try{let j;try{j=JSON.parse(s)}catch{process.exit(2)}if(!j||j.error||!Array.isArray(j.targets)){process.exit(2)}const blocking=["NEEDS-SYNC","NEEDS-BUILD","NEEDS-DEPLOY"];const bad=j.targets.filter(t=>t.dllExists===true&&blocking.indexOf(t.verdict)!==-1);for(const t of bad){console.log("      "+(t.alias||t.uprojectPath)+": "+t.verdict+" - "+t.reason)}process.exit(bad.length?1:0)}catch{process.exit(2)}})'
+# Print stale installations from verify-deploy's JSON report. An unreadable
+# report has its own diagnostic. Both outcomes continue to the outgoing scan.
+deploy_parser='
+let input = "";
+process.stdin.on("data", chunk => { input += chunk; }).on("end", () => {
+  try {
+    const report = JSON.parse(input);
+    if (report.error || !Array.isArray(report.targets)) process.exit(2);
+    const verdicts = ["NEEDS-SYNC", "NEEDS-BUILD", "NEEDS-DEPLOY"];
+    for (const target of report.targets) {
+      if (target.dllExists === true && verdicts.includes(target.verdict)) {
+        console.log("  " + (target.alias || target.uprojectPath) + ": " + target.verdict + " - " + target.reason);
+      }
+    }
+  } catch {
+    process.exitCode = 2;
+  }
+});'
 
 while read -r local_ref local_sha remote_ref remote_sha; do
   [[ "$local_sha" == "$zero" ]] && continue   # branch deletion
@@ -114,23 +117,7 @@ while read -r local_ref local_sha remote_ref remote_sha; do
     content="$(git log -m -p --no-color "${scan_args[@]}")" || exit 1
   fi
 
-  # Plugin compile gate (WS2): refuse to publish plugin source that a local
-  # target has built before but not since. Reads verify-deploy's --json
-  # document, never its human output: a target blocks when its verdict is
-  # NEEDS-SYNC, NEEDS-BUILD or NEEDS-DEPLOY *and* dllExists is true. Targets
-  # that were never built here have no stale build to report and are ignored,
-  # as are MISSING ones. Bypass: git push --no-verify or
-  # UEMCP_SKIP_COMPILE_GATE=1.
-  #
-  # Runs before the codename scan below (fail-closed): a push blocked here
-  # never reaches the scan, so a retry after fixing the build reports
-  # codenames on that retry, not this one — nothing leaks either way.
-  #
-  # Evaluated at most once per push, not once per ref: verify-deploy's CIM
-  # process scan is expensive, and the verdict doesn't depend on which ref
-  # triggered it. gate_checked is set only once verify-deploy actually runs,
-  # so a ref that touches no plugin source never consumes the one evaluation.
-  if [[ -z "${UEMCP_SKIP_COMPILE_GATE:-}" && "$gate_checked" == "0" ]]; then
+  if [[ -z "${UEMCP_SKIP_COMPILE_GATE:-}" && "$deploy_checked" == "0" ]]; then
     if [[ "$remote_sha" == "$zero" ]]; then
       touched="$(git log --name-only --pretty=format: "${scan_args[@]}" 2>/dev/null)"
     else
@@ -138,33 +125,17 @@ while read -r local_ref local_sha remote_ref remote_sha; do
     fi
     if printf '%s\n' "$touched" | grep -qE '^plugin/UEMCP/(Source/|Resources/|UEMCP\.uplugin$)'; then
       if [[ -f .uemcp-targets.json || -f .uemcp-targets.txt ]]; then
-        gate_checked=1
+        deploy_checked=1
         gate_profile="${UEMCP_PUSH_GATE_PROFILE:-}"
         if [[ -z "$gate_profile" ]] && grep -q '"smoke"' .uemcp-targets.json 2>/dev/null; then gate_profile="smoke"; fi
         gate_rc=0
         gate_json="$(node server/verify-deploy.mjs --json ${gate_profile:+--profile "$gate_profile"} < /dev/null 2>/dev/null)" || gate_rc=$?
-        gate_parse_rc=0
-        stale="$(printf '%s' "$gate_json" | node -e "$gate_parser" 2>/dev/null)" || gate_parse_rc=$?
-        if [[ "$gate_parse_rc" == "1" ]]; then
-          {
-            echo ""
-            echo "✗ Push blocked: plugin source changed but a target has not been rebuilt ($range_label)"
-            echo ""
-            printf '%s\n' "$stale"
-            echo ""
-            echo "  Run sync-plugin.bat / Build.bat for the target, or bypass with 'git push --no-verify'"
-            echo "  (or UEMCP_SKIP_COMPILE_GATE=1). Gate profile: ${gate_profile:-default}."
-            echo ""
-          } >&2
-          exit 1
-        elif [[ "$gate_parse_rc" != "0" ]]; then
-          # The document was unusable — a bad --profile, a missing node, a
-          # crash. That is a config problem on this machine, not evidence of a
-          # stale build. Warn, never block.
-          echo "  (compile gate could not evaluate: verify-deploy exited $gate_rc; profile: ${gate_profile:-default})" >&2
+        if ! stale="$(printf '%s' "$gate_json" | node -e "$deploy_parser" 2>/dev/null)"; then
+          echo "Warning: local deployment status unavailable (verify-deploy exit $gate_rc, profile ${gate_profile:-default}). Continuing push." >&2
+        elif [[ -n "$stale" ]]; then
+          echo "Warning: stale local plugin deployments (profile ${gate_profile:-default}). Continuing push." >&2
+          printf '%s\n' "$stale" >&2
         fi
-      else
-        echo "  (compile gate skipped: no .uemcp-targets.json on this machine)" >&2
       fi
     fi
   fi

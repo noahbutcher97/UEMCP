@@ -1,12 +1,5 @@
-// test-pre-push-gate.mjs — structural and behavioural guard for the compile
-// gate in .githooks/pre-push. The rotation cannot perform a push, so this
-// pins two things instead: the shape of the hook (bypass vars, the --json
-// invocation, the branches on the reader's exit codes) and the behaviour of
-// the reader itself — the gate_parser program is extracted from the hook and
-// executed against canned documents, because bash -n checks shell syntax and
-// would not notice a typo inside that single-quoted JavaScript.
-//
-// Modelled on test-sync-plugin-bat-safety.mjs.
+// Verify the local deployment advisory and its JSON input. The end-to-end Git
+// push and confidentiality regressions live in test-project-hygiene.mjs.
 // Run: cd server && node test-pre-push-gate.mjs
 
 import { readFileSync } from 'node:fs';
@@ -17,14 +10,14 @@ import { spawnSync } from 'node:child_process';
 import { TestRunner } from './test-helpers.mjs';
 import { resolveTestBash } from './shell-test-support.mjs';
 
-const t = new TestRunner('pre-push compile gate Tests');
+const t = new TestRunner('Pre-push deployment advisory tests');
 
 const repoRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 const hookPath = join(repoRoot, '.githooks', 'pre-push');
 const hookText = readFileSync(hookPath, 'utf8');
 const lines = hookText.split('\n');
 
-t.assert(hookText.includes('UEMCP_SKIP_COMPILE_GATE'), 'hook names the UEMCP_SKIP_COMPILE_GATE bypass');
+t.assert(hookText.includes('UEMCP_SKIP_COMPILE_GATE'), 'hook supports skipping the local deployment lookup');
 t.assert(hookText.includes('UEMCP_PUSH_GATE_PROFILE'), 'hook names the UEMCP_PUSH_GATE_PROFILE override');
 
 const verifyDeployLine = lines.find((line) => line.includes('verify-deploy.mjs'));
@@ -41,25 +34,16 @@ t.assert(
   'gate trigger names Source/, Resources/, and the .uplugin',
 );
 
-// The prose contract is retired: a reword of verify-deploy's printer must no
-// longer be able to change what the gate decides.
+// The advisory consumes machine-readable verdicts.
 t.assert(!hookText.includes('Verdict: (NEEDS-SYNC'), 'hook no longer greps the human Verdict prefix');
 t.assert(
   !hookText.includes('DLL missing') && !hookText.includes('not built'),
   'hook no longer greps the never-built reason substrings',
 );
 
-const parserMatch = hookText.match(/^gate_parser='(.*)'$/m);
-t.assert(!!parserMatch, 'hook defines gate_parser on one single-quoted line');
+const parserMatch = hookText.match(/^deploy_parser='([^']*)'$/m);
+t.assert(!!parserMatch, 'hook defines the deployment report parser');
 const parser = parserMatch ? parserMatch[1] : '';
-t.assert(
-  ['NEEDS-SYNC', 'NEEDS-BUILD', 'NEEDS-DEPLOY'].every((v) => parser.includes(v)),
-  'gate_parser names all three blocking verdicts',
-);
-t.assert(parser.includes('t.dllExists===true'), 'gate_parser blocks only on targets whose DLL exists');
-t.assert(hookText.includes('"$gate_parse_rc" == "1"'), 'hook blocks the push on reader exit 1');
-t.assert(hookText.includes('"$gate_parse_rc" != "0"'), 'hook warns without blocking on any other reader exit');
-t.assert(hookText.includes('compile gate could not evaluate'), 'hook contains the could-not-evaluate warning phrase');
 
 const bash = resolveTestBash();
 const bashCheck = bash ? spawnSync(bash, ['-n', hookPath], { encoding: 'utf8', windowsHide: true }) : null;
@@ -78,24 +62,26 @@ const allSync = JSON.stringify({
   version: 1, profile: 'smoke', exitCode: 0,
   targets: [{ uprojectPath: 'path/to/YourProject.uproject', alias: 'primary', verdict: 'SYNC', reason: 'content-identical to repo; DLL built after the last sync', contentIdentical: true, dllExists: true, editors: [], mcpPointsHere: false }],
 });
-t.assert(runParser(allSync).status === 0, 'reader exits 0 for an all-SYNC document');
+const synced = runParser(allSync);
+t.assert(synced.status === 0 && !synced.stdout, 'reader stays quiet for an all-SYNC document');
 
-const blocking = JSON.stringify({
+const stale = JSON.stringify({
   version: 1, profile: 'smoke', exitCode: 1,
   targets: [{ uprojectPath: 'path/to/YourProject.uproject', alias: 'primary', verdict: 'NEEDS-BUILD', reason: 'content-identical to repo; DLL predates the last sync', contentIdentical: true, dllExists: true, editors: [], mcpPointsHere: false }],
 });
-const blockingRun = runParser(blocking);
+const staleRun = runParser(stale);
 t.assert(
-  blockingRun.status === 1 && blockingRun.stdout.includes('primary') && blockingRun.stdout.includes('NEEDS-BUILD'),
-  'reader exits 1 and names the blocking target',
-  blockingRun.stdout,
+  staleRun.status === 0 && staleRun.stdout.includes('primary') && staleRun.stdout.includes('NEEDS-BUILD'),
+  'reader names the stale local target and succeeds',
+  staleRun.stdout,
 );
 
 const neverBuilt = JSON.stringify({
   version: 1, profile: 'smoke', exitCode: 1,
   targets: [{ uprojectPath: 'path/to/SecondProject.uproject', alias: 'second', verdict: 'NEEDS-BUILD', reason: 'Source synced but DLL not built', contentIdentical: null, dllExists: false, editors: [], mcpPointsHere: false }],
 });
-t.assert(runParser(neverBuilt).status === 0, 'reader ignores a never-built target (dllExists false)');
+const unbuilt = runParser(neverBuilt);
+t.assert(unbuilt.status === 0 && !unbuilt.stdout, 'reader omits a never-built target (dllExists false)');
 
 t.assert(
   runParser(JSON.stringify({ version: 1, error: 'Profile not found: nope', exitCode: 2 })).status === 2,

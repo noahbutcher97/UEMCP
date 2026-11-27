@@ -43,10 +43,11 @@ function cleanup(dir) {
   rmSync(dir, { recursive: true, force: true });
 }
 
-function runProcess(command, args, { cwd, input } = {}) {
+function runProcess(command, args, { cwd, input, env } = {}) {
   return spawnSync(command, args, {
     cwd,
     input,
+    env,
     encoding: 'utf8',
     windowsHide: true,
   });
@@ -212,8 +213,33 @@ function runGit(cwd, args) {
       cleanResult.stderr || cleanResult.stdout
     );
 
+    // Exercise Git's ref update with a stale consumer and the normal pre-push hook.
+    mkdirSync(join(testRepo, 'server'));
+    writeFileSync(join(testRepo, '.uemcp-targets.json'), '{}\n');
+    writeFileSync(join(testRepo, 'server', 'verify-deploy.mjs'), [
+      'const verdicts = ["NEEDS-SYNC", "NEEDS-BUILD", "NEEDS-DEPLOY"];',
+      'console.log(JSON.stringify({ targets: verdicts.map(verdict => ({ alias: "local-fixture", dllExists: true, verdict, reason: "fixture" })) }));',
+      'process.exitCode = 1;',
+    ].join('\n'));
+    const pluginDir = join(testRepo, 'plugin', 'UEMCP', 'Source');
+    mkdirSync(pluginDir, { recursive: true });
+    const pluginFile = join(pluginDir, 'Sample.cpp');
+    writeFileSync(pluginFile, '// Clean change\n');
+    runGit(testRepo, ['add', '--', pluginFile]);
+    runGit(testRepo, ['commit', '-m', 'Update sample plugin']);
+    const stalePush = runProcess('git', [...hookConfig, 'push', 'origin', 'range-check'], {
+      cwd: testRepo, env: { ...process.env, UEMCP_SKIP_COMPILE_GATE: '' },
+    });
+    const published = runGit(remoteRoot, ['rev-parse', 'refs/heads/range-check']);
+    t.assert(
+      stalePush.status === 0 && published === runGit(testRepo, ['rev-parse', 'HEAD']) &&
+        ['NEEDS-SYNC', 'NEEDS-BUILD', 'NEEDS-DEPLOY'].every(verdict => stalePush.stderr.includes(verdict)),
+      'Git publishes plugin changes and reports all stale local deployment verdicts', stalePush.stderr
+    );
+
+    writeFileSync(pluginFile, '// Another plugin change\n');
     writeFileSync(join(testRepo, 'outgoing.txt'), `${token}\n`, 'utf8');
-    runGit(testRepo, ['add', 'outgoing.txt']);
+    runGit(testRepo, ['add', '--', pluginFile, 'outgoing.txt']);
     runGit(testRepo, ['commit', '-m', 'Outgoing forbidden content']);
     runGit(testRepo, ['remote', 'add', 'private', privateRemoteRoot]);
     runGit(testRepo, ['push', 'private', 'range-check']);
@@ -234,13 +260,13 @@ function runGit(cwd, args) {
     const forbiddenExistingBranchResult = runProcess('git', [
       ...hookConfig,
       'push',
-      '--dry-run',
       'origin',
       'HEAD:refs/heads/range-check',
-    ], { cwd: testRepo });
+    ], { cwd: testRepo, env: { ...process.env, UEMCP_SKIP_COMPILE_GATE: '' } });
     t.assert(
-      forbiddenExistingBranchResult.status === 1 && /Push blocked/.test(forbiddenExistingBranchResult.stderr),
-      'pre-push retains existing-branch range enforcement',
+      forbiddenExistingBranchResult.status === 1 && /NDA codename detected/.test(forbiddenExistingBranchResult.stderr) &&
+        runGit(remoteRoot, ['rev-parse', 'refs/heads/range-check']) === published,
+      'protected content on an existing branch is rejected even with stale local targets',
       forbiddenExistingBranchResult.stderr || forbiddenExistingBranchResult.stdout
     );
   } finally {

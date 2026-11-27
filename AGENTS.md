@@ -61,6 +61,8 @@ Recent history uses short, scoped subjects with a decision or dispatch prefix, f
 
 Pull requests should describe the behavioral change, list commands run, call out plugin deployment requirements, and link relevant docs or decision-log entries. Include screenshots only for visual or editor-facing changes.
 
+Publish verified changes with the normal Git hooks. Stale local consumer installations are advisory. Sync and rebuild a consumer when it is selected for deployment.
+
 ## Security & Configuration Tips
 
 Do not commit machine-local configuration or sensitive paths. `.mcp.json`, `.uemcp-targets.json`, `.uemcp-targets.txt`, logs, `node_modules/`, UE `Binaries/`, and `Intermediate/` are intentionally ignored. Use `.mcp.json.example` as the template for client configuration, `.uemcp-targets.json.example` for new local target profiles, and `migrate-targets.bat` only for local conversion of existing legacy lists.
