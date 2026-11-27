@@ -728,6 +728,14 @@ console.log('\n── Group 25: P0-10 Vector Shape Validation ──');
     t.assert(fake.lastCall('set_data_asset_property').params.property_name === indexed.property_name,
       'the indexed path reaches the editor unchanged');
 
+    const reference = { ...field, property_name: 'Reference' };
+    for (const value of ['/Game/Evaluation/DA_Control', null]) {
+      await executeMenhanceTool('set_data_asset_property', { ...reference, value }, cm);
+    }
+    await t.assertRejects(() => executeMenhanceTool('set_data_asset_property', { ...reference, value: true }, cm),
+      /value/i, 'ambiguous reference input is rejected before dispatch');
+    t.assert(fake.callsFor('set_data_asset_property').length === 4, 'asset paths and explicit null reach the native validator');
+
     fake.on('open_map', { status: 'success', result: { changed: false } });
     for (let attempt = 0; attempt < 2; attempt++) {
       await executeMenhanceTool('open_map', { map_path: '/Game/Maps/Evaluation' }, cm);

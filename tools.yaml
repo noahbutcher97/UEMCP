@@ -1541,7 +1541,7 @@ toolsets:
         saves_asset: false
         compiles_asset: false
         offline_fallback: false
-        description: Read a live numeric or FVector DataAsset property, including unsaved edits. Use a /Game package or exact object path and a dotted field name such as Settings.Threshold or Settings.Weights[1]. Returns value and dirty state. Vectors use [X,Y,Z].
+        description: Read a live numeric, FVector or hard asset reference DataAsset property, including unsaved edits. Use a /Game package or exact object path and a dotted field name such as Settings.Threshold or Settings.Weights[1]. Returns value and dirty state. Vectors use [X,Y,Z].
         params:
           asset_path:    { type: string, required: true }
           property_name: { type: string, required: true }
@@ -1556,11 +1556,11 @@ toolsets:
         saves_asset: false
         compiles_asset: false
         offline_fallback: false
-        description: Change a numeric or FVector DataAsset property in an editor transaction. Use a dotted nested field such as Settings.Threshold or Settings.Weights[1]. Supports int32, float, double and whole FVector values. Returns previous and live values and dirty state. Call save_asset for persistence.
+        description: Change a numeric, FVector or hard asset reference DataAsset property in an editor transaction. Use a dotted nested field such as Settings.Threshold or Settings.Weights[1]. Supports int32, float, double and whole FVector values. Supply a compatible /Game asset path for a hard reference, or null to clear it. Returns previous and live values and dirty state. Call save_asset for persistence.
         params:
           asset_path:    { type: string, required: true }
           property_name: { type: string, required: true }
-          value:         { type: any, required: true, description: "Finite JSON number or three finite numbers [X,Y,Z] for one FVector." }
+          value:         { type: any, required: true, description: "Finite number, [X,Y,Z], a compatible /Game asset path, or null to clear a hard reference." }
       # reduced_scope: reflection-only "subclasses defined in loaded modules" (discover runtime-registered DataAsset classes); AR-tag-surface shipped offline
       # displaced_by: query_asset_registry (class_name:DataAsset)
       list_data_asset_types:

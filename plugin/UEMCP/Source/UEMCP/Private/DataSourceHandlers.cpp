@@ -128,15 +128,15 @@ namespace UEMCP
 		}
 
 		// Resolve an exact project asset, including a newly created package in memory.
-		UDataAsset* ResolveDataAsset(const FString& Path)
+		UObject* ResolveProjectAsset(const FString& Path, UClass* ExpectedClass)
 		{
 			if (Path.Len() > 512 || !Path.StartsWith(TEXT("/Game/"), ESearchCase::CaseSensitive)) return nullptr;
 			const FString Package = FPackageName::ObjectPathToPackageName(Path);
 			if (!FPackageName::IsValidLongPackageName(Package)) return nullptr;
 			const FString ObjectPath = Package + TEXT(".") + FPackageName::GetLongPackageAssetName(Package);
 			if (!Path.Equals(Package) && !Path.Equals(ObjectPath)) return nullptr;
-			UDataAsset* Asset = LoadObject<UDataAsset>(nullptr, *ObjectPath, nullptr, LOAD_NoWarn);
-			return Asset && Asset->IsAsset() && Asset->GetPathName().Equals(ObjectPath) ? Asset : nullptr;
+			UObject* Asset = StaticLoadObject(ExpectedClass, nullptr, *ObjectPath, nullptr, LOAD_NoWarn);
+			return Asset && Asset->IsAsset() && Asset->GetPathName().Equals(ObjectPath, ESearchCase::CaseSensitive) ? Asset : nullptr;
 		}
 
 		// Accept only values representable by the declared leaf type. Validate before opening
@@ -155,9 +155,16 @@ namespace UEMCP
 			return true;
 		}
 
-		TSharedPtr<FJsonValue> ReadDataAssetValue(const FNumericProperty* Numeric, const void* Address)
+		TSharedPtr<FJsonValue> ReadDataAssetValue(const FProperty* Property, const void* Address)
 		{
-			if (Numeric)
+			if (const FObjectProperty* Reference = CastField<FObjectProperty>(Property))
+			{
+				UObject* Target = Reference->GetObjectPropertyValue(Address);
+				if (!Target) return MakeShared<FJsonValueNull>();
+				if (!Target->IsAsset()) return nullptr;
+				return MakeShared<FJsonValueString>(Target->GetPathName());
+			}
+			if (const FNumericProperty* Numeric = CastField<FNumericProperty>(Property))
 			{
 				const double Number = Numeric->IsInteger() ? Numeric->GetSignedIntPropertyValue(Address) : Numeric->GetFloatingPointPropertyValue(Address);
 				if (!FMath::IsFinite(Number)) return nullptr;
@@ -169,9 +176,24 @@ namespace UEMCP
 				MakeShared<FJsonValueNumber>(Vector.X), MakeShared<FJsonValueNumber>(Vector.Y), MakeShared<FJsonValueNumber>(Vector.Z)});
 		}
 
-		bool PrepareDataAssetValue(const TSharedPtr<FJsonObject>& Params, const FProperty* Field, const FNumericProperty* Numeric, void* OutValue)
+		bool PrepareDataAssetValue(const TSharedPtr<FJsonObject>& Params, const FProperty* Property, const FProperty* Field, void* OutValue)
 		{
-			if (Numeric)
+			if (const FObjectProperty* Reference = CastField<FObjectProperty>(Property))
+			{
+				if (Params->HasTypedField<EJson::Null>(TEXT("value")))
+				{
+					if ((Property->GetPropertyFlags() | Field->GetPropertyFlags()) & (CPF_NoClear | CPF_NonNullable)) return false;
+					Reference->SetObjectPropertyValue(OutValue, nullptr);
+					return true;
+				}
+				FString Path;
+				if (!Params->HasTypedField<EJson::String>(TEXT("value")) || !Params->TryGetStringField(TEXT("value"), Path)) return false;
+				UObject* Target = ResolveProjectAsset(Path, Reference->PropertyClass);
+				if (!Target || !Target->IsA(Reference->PropertyClass)) return false;
+				Reference->SetObjectPropertyValue(OutValue, Target);
+				return true;
+			}
+			if (const FNumericProperty* Numeric = CastField<FNumericProperty>(Property))
 			{
 				double Value;
 				if (!Params->HasTypedField<EJson::Number>(TEXT("value")) || !Params->TryGetNumberField(TEXT("value"), Value) ||
@@ -254,7 +276,7 @@ namespace UEMCP
 				BuildErrorResponse(OutResponse, TEXT("Supply asset_path and a dotted property_name"), TEXT("INVALID_ARGUMENT"));
 				return;
 			}
-			UDataAsset* Asset = ResolveDataAsset(Path);
+			UDataAsset* Asset = Cast<UDataAsset>(ResolveProjectAsset(Path, UDataAsset::StaticClass()));
 			if (!Asset)
 			{
 				BuildErrorResponse(OutResponse, TEXT("Expected an existing /Game DataAsset package or exact object path"), TEXT("ASSET_NOT_FOUND"));
@@ -332,31 +354,42 @@ namespace UEMCP
 			}
 			const FStructProperty* Struct = CastField<FStructProperty>(Property);
 			const bool bVector = Struct && Struct->Struct == TBaseStructure<FVector>::Get();
-			if (!bVector && !CastField<FIntProperty>(Property) && !CastField<FFloatProperty>(Property) && !CastField<FDoubleProperty>(Property))
+			const FObjectProperty* Reference = CastField<FObjectProperty>(Property);
+			const FProperty* Field = Steps.Last().Field;
+			if (Reference && (CastField<FClassProperty>(Property) ||
+				(Field->GetPropertyFlags() | Property->GetPropertyFlags()) & (CPF_InstancedReference | CPF_PersistentInstance) ||
+				Field->HasMetaData(TEXT("AllowedClasses")) || Field->HasMetaData(TEXT("DisallowedClasses")) ||
+				Field->HasMetaData(TEXT("ExactClass")) || Field->HasMetaData(TEXT("MustImplement")) || Field->HasMetaData(TEXT("RequiredAssetDataTags")) ||
+				Field->HasMetaData(TEXT("DisallowedAssetDataTags")) || Field->HasMetaData(TEXT("GetAllowedClasses")) ||
+				Field->HasMetaData(TEXT("GetDisallowedClasses")) || Field->HasMetaData(TEXT("GetAssetFilter"))))
 			{
-				BuildErrorResponse(OutResponse, TEXT("Supported leaves are int32, float, double and FVector"), TEXT("UNSUPPORTED_PROPERTY"));
+				BuildErrorResponse(OutResponse, TEXT("Class, instanced and custom-filtered reference fields are unsupported"), TEXT("UNSUPPORTED_PROPERTY"));
 				return;
 			}
-			const FNumericProperty* Numeric = CastField<FNumericProperty>(Property);
+			if (!Reference && !bVector && !CastField<FIntProperty>(Property) && !CastField<FFloatProperty>(Property) && !CastField<FDoubleProperty>(Property))
+			{
+				BuildErrorResponse(OutResponse, TEXT("Supported leaves are int32, float, double, FVector and hard asset references"), TEXT("UNSUPPORTED_PROPERTY"));
+				return;
+			}
 			void* Address = ResolveFieldAddress(Asset, Steps);
 			if (!Address)
 			{
 				BuildErrorResponse(OutResponse, TEXT("Array index is outside the existing elements"), TEXT("INDEX_OUT_OF_RANGE"));
 				return;
 			}
-			const TSharedPtr<FJsonValue> Previous = ReadDataAssetValue(Numeric, Address);
+			const TSharedPtr<FJsonValue> Previous = ReadDataAssetValue(Property, Address);
 			if (!Previous)
 			{
-				BuildErrorResponse(OutResponse, TEXT("Existing value cannot be represented as a JSON number"), TEXT("INVALID_VALUE"));
+				BuildErrorResponse(OutResponse, TEXT("Existing value is outside the supported property contract"), TEXT("INVALID_VALUE"));
 				return;
 			}
 			TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
 			if (bWrite)
 			{
 				FPropertyTempVal NewValue(Property);
-				if (!PrepareDataAssetValue(Params, Steps.Last().Field, Numeric, NewValue.Get()))
+				if (!PrepareDataAssetValue(Params, Property, Field, NewValue.Get()))
 				{
-					BuildErrorResponse(OutResponse, bVector ? TEXT("Expected three finite numbers [X,Y,Z] within the field bounds") :
+					BuildErrorResponse(OutResponse, Reference ? TEXT("Supply an existing /Game asset of the declared class, or null for a clearable reference") : bVector ? TEXT("Expected three finite numbers [X,Y,Z] within the field bounds") :
 						TEXT("Supply a JSON number within the field's type and clamp bounds"), TEXT("INVALID_VALUE"));
 					return;
 				}
@@ -388,10 +421,10 @@ namespace UEMCP
 			}
 			Result->SetStringField(TEXT("asset_path"), Asset->GetOutermost()->GetName());
 			Result->SetStringField(TEXT("property_name"), PropertyName);
-			const TSharedPtr<FJsonValue> Current = bWrite ? ReadDataAssetValue(Numeric, Address) : Previous;
+			const TSharedPtr<FJsonValue> Current = bWrite ? ReadDataAssetValue(Property, Address) : Previous;
 			if (!Current)
 			{
-				BuildErrorResponse(OutResponse, TEXT("Editor callback produced a non-finite value; inspect the asset and use Undo"), TEXT("INVALID_VALUE"));
+				BuildErrorResponse(OutResponse, TEXT("Editor callback produced an unsupported value. Inspect the asset or use Undo"), TEXT("INVALID_VALUE"));
 				return;
 			}
 			Result->SetField(TEXT("value"), Current);

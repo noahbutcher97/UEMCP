@@ -29,4 +29,7 @@ class UEMCPFIXTURE_API UUEMCPFixtureEvaluationConfig : public UDataAsset
 public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Evaluation")
 	FUEMCPFixtureEvaluationSettings Settings;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Evaluation")
+	TObjectPtr<UUEMCPFixtureEvaluationConfig> Reference;
 };

@@ -384,7 +384,7 @@ export const MENHANCE_SCHEMAS = {
   },
 
   get_data_asset_property: {
-    description: 'Read a numeric or FVector DataAsset field from the editor, including nested and unsaved values. Returns value and package dirty state. Vectors use [X,Y,Z].',
+    description: 'Read a numeric, FVector or hard asset reference DataAsset field from the editor, including nested and unsaved values. Returns value and package dirty state. Vectors use [X,Y,Z].',
     structuredErrors: true,
     unknownArgumentMessage: 'Use asset_path and property_name.',
     schema: dataAssetProperty,
@@ -392,10 +392,10 @@ export const MENHANCE_SCHEMAS = {
   },
 
   set_data_asset_property: {
-    description: 'Edit one numeric or FVector DataAsset field in an undoable transaction. Supply one number or the complete vector [X,Y,Z]. Use Field[index] for an existing dynamic array element, including elements in nested structs. Returns prior and current values. Call save_asset separately to persist.',
+    description: 'Edit one numeric, FVector or hard asset reference DataAsset field in an undoable transaction. Supply a number, [X,Y,Z], a compatible /Game asset path, or null to clear a hard reference. Use Field[index] for an existing dynamic array element, including elements in nested structs. Returns prior and current values. Call save_asset separately to persist.',
     structuredErrors: true,
     unknownArgumentMessage: 'Use asset_path, property_name and value.',
-    schema: { ...dataAssetProperty, value: z.union([z.number().finite(), z.array(z.number().finite()).length(3)]) },
+    schema: { ...dataAssetProperty, value: z.union([z.number().finite(), z.array(z.number().finite()).length(3), z.string().startsWith('/Game/').max(512), z.null()]) },
     isReadOp: false,
   },
 
