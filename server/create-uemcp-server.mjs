@@ -10,7 +10,9 @@ import { ConnectionManager } from './connection-manager.mjs';
 import { ToolIndex } from './tool-index.mjs';
 import { ToolsetManager, summarizeAutoEnable } from './toolset-manager.mjs';
 import { buildFindToolsEnablePlan, selectWorkflowBundle, unavailableBundlePieces } from './workflow-bundles.mjs';
+import { exportInspection } from './saved-inspection-snapshot.mjs';
 import { executeOfflineTool, resetOfflineAssetCache } from './offline-tools.mjs';
+import { executeEvaluationJob } from './evaluation-jobs.mjs';
 import { buildZodSchema } from './zod-builder.mjs';
 import { ProjectContext, withProjectContextGuard } from './project-context.mjs';
 import { PROJECT_ERROR_CODES, ProjectContextError, makeProjectToolResult } from './project-errors.mjs';
@@ -89,9 +91,9 @@ import {
   executeM5GeometryTool,
 } from './m5-geometry-tools.mjs';
 import {
-  initM5EditorUtilityTools,
+  createEditorUtilityExecutor,
+  pythonExecDisabledResponse,
   getM5EditorUtilityToolDefs,
-  executeM5EditorUtilityTool,
 } from './m5-editor-utility-tools.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -298,6 +300,7 @@ function registerToolGroup(server, toolsetManager, projectContext, log, dispatch
     // dispatchers. The dispatch registry keeps its own reference rather than
     // reading the SDK handle's callback field, which the SDK has renamed before.
     const invoke = async (args) => {
+        if (def.policyRefusal) return structuredResult({ ...def.policyRefusal, ok: false });
         try {
           return await withProjectContextGuard(
             projectContext,
@@ -954,10 +957,12 @@ export async function createUemcpServer(options = {}) {
 
   // The package reader can work alone. For a comparison, bind the read to
   // the current TCP endpoint using its own uncached project handshake.
-  async function readLiveBlueprintPins(args, generation) {
-    function requireSameAttachment() {
-      if (generation !== projectContext.generation) throw new Error('Project attachment changed during pin inspection');
-    }
+  function checkInspectionAttachment(generation) {
+    if (generation !== projectContext.generation) throw new Error('Project attachment changed during pin inspection');
+  }
+
+  async function readVerifiedInspection(name, args, generation) {
+    const requireSameAttachment = () => checkInspectionAttachment(generation);
     const options = { skipCache: true, beforeDispatch: requireSameAttachment };
     requireSameAttachment();
     const state = await connectionManager.send('tcp-55558', 'get_editor_state', {}, options);
@@ -966,20 +971,23 @@ export async function createUemcpServer(options = {}) {
     if (verified.state !== 'verified') {
       throw Object.assign(new Error(verified.message), { code: verified.code });
     }
-    return connectionManager.send('tcp-55558', 'show_blueprint_pin_links', args, options);
+    return connectionManager.send('tcp-55558', name, args, options);
   }
 
-  function registerDynamicTools() {
+  function registerDynamicTools(editorUtilityExecutor, pythonExecEnabled) {
     const sendGraphAction = createGraphActionSender(projectContext, connectionManager);
     registerToolGroup(
       server, toolsetManager, projectContext, log, dispatchRegistry, 'offline', 'offline',
       TOOLS_YAML.toolsets.offline.tools,
       buildOfflineSchemaShape,
       (name, args) => {
+        if (['start_evaluation_job', 'get_evaluation_job', 'get_evaluation_result', 'cancel_evaluation_job'].includes(name)) {
+          return executeEvaluationJob(name, args, projectContext.identity?.uprojectPath, env);
+        }
         const generation = projectContext.generation;
         return executeOfflineTool(name, args,
           projectContext.identity?.projectRoot || connectionManager.getAttachedProjectRoot(),
-          pins => readLiveBlueprintPins(pins, generation));
+          pins => readVerifiedInspection('show_blueprint_pin_links', pins, generation));
       }
     );
 
@@ -1015,15 +1023,24 @@ export async function createUemcpServer(options = {}) {
       server, toolsetManager, projectContext, log, dispatchRegistry, 'm-enhance', 'm-enhance',
       getMenhanceToolDefs(),
       buildTcpSchemaShape,
-      (name, args) => executeMenhanceTool(name, args, connectionManager, sendGraphAction)
+      (name, args) => {
+        if (name === 'export_asset_inspection') {
+          const generation = projectContext.generation;
+          return exportInspection(projectContext.identity?.projectRoot, args,
+            (tool, params) => readVerifiedInspection(tool, params, generation), () => checkInspectionAttachment(generation));
+        }
+        return executeMenhanceTool(name, args, connectionManager, sendGraphAction);
+      }
     );
 
+    const editorDefs = { ...getM5EditorUtilityToolDefs() };
+    if (!pythonExecEnabled) editorDefs.run_python_command = { ...editorDefs.run_python_command, policyRefusal: pythonExecDisabledResponse() };
     const m5ToolsetGroups = [
       { name: 'animation', defs: getM5AnimationToolDefs(), execute: executeM5AnimationTool },
       { name: 'materials', defs: getM5MaterialsToolDefs(), execute: executeM5MaterialsTool },
       { name: 'input-and-pie', defs: getM5InputPieToolDefs(), execute: executeM5InputPieTool },
       { name: 'geometry', defs: getM5GeometryToolDefs(), execute: executeM5GeometryTool },
-      { name: 'editor-utility', defs: getM5EditorUtilityToolDefs(), execute: executeM5EditorUtilityTool },
+      { name: 'editor-utility', defs: editorDefs, execute: editorUtilityExecutor },
     ];
 
     for (const group of m5ToolsetGroups) {
@@ -1054,12 +1071,12 @@ export async function createUemcpServer(options = {}) {
     const pythonExecEnabled =
       options.argv?.includes('--enable-python-exec') ||
       env.UEMCP_ENABLE_PYTHON_EXEC === '1';
-    initM5EditorUtilityTools(toolsetManager.getToolsData(), { pythonExecEnabled });
+    const editorUtilityExecutor = createEditorUtilityExecutor(toolsetManager.getToolsData(), { pythonExecEnabled });
     if (pythonExecEnabled) {
       stderr.write('[uemcp] Python execution enabled - run_python_command will accept calls (deny-list still applies)\n');
     }
 
-    registerDynamicTools();
+    registerDynamicTools(editorUtilityExecutor, pythonExecEnabled);
 
     if (projectContext.attachMode === 'env') {
       await projectContext.initializeFromProcessHints({ workspaceRoots: fallbackWorkspaceRoots });

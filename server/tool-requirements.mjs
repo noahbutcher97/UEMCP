@@ -1,5 +1,6 @@
 export const TOOL_REQUIREMENT_KINDS = Object.freeze({
   MANAGEMENT: 'management',
+  PROJECT_JOB_MUTATION: 'project_job_mutation',
   OFFLINE_READ: 'offline_read',
   LIVE_READ: 'live_read',
   LIVE_MUTATION: 'live_mutation',
@@ -52,6 +53,7 @@ const LIVE_MUTATION_OVERRIDES = new Set([
   'details_panel_scroll',
   // File writers, including captures with optional output paths.
   'regenerate_sidecar',
+  'export_asset_inspection',
   'take_screenshot',
   'get_asset_preview_render',
   'get_viewport_screenshot',
@@ -81,6 +83,7 @@ function metadataImpliesMutation(toolDef = {}) {
 export function getToolRequirement(toolName, toolsetName, toolDef = {}) {
   if (toolsetName === 'management') return TOOL_REQUIREMENT_KINDS.MANAGEMENT;
   if (toolName === 'run_python_command') return TOOL_REQUIREMENT_KINDS.PYTHON_EXEC;
+  if (['start_evaluation_job', 'get_evaluation_job', 'get_evaluation_result', 'cancel_evaluation_job'].includes(toolName)) return TOOL_REQUIREMENT_KINDS.PROJECT_JOB_MUTATION;
   if (toolsetName === 'offline') return TOOL_REQUIREMENT_KINDS.OFFLINE_READ;
 
   const layer = declaredLayer(toolDef);
@@ -99,7 +102,8 @@ export function getToolRequirement(toolName, toolsetName, toolDef = {}) {
 
 /** Requirement classes that mutate editor or project state. */
 export function isMutationRequirement(requirement) {
-  return requirement === TOOL_REQUIREMENT_KINDS.LIVE_MUTATION ||
+  return requirement === TOOL_REQUIREMENT_KINDS.PROJECT_JOB_MUTATION ||
+    requirement === TOOL_REQUIREMENT_KINDS.LIVE_MUTATION ||
     requirement === TOOL_REQUIREMENT_KINDS.RC_MUTATION ||
     requirement === TOOL_REQUIREMENT_KINDS.PYTHON_EXEC;
 }

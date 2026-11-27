@@ -1,5 +1,6 @@
 // Copyright Noah Butcher. All Rights Reserved.
 #include "DataSourceHandlers.h"
+#include "ChooserInspection.h"
 
 #include "AssetToolsModule.h"
 #include "BlueprintHandlerHelpers.h"
@@ -527,6 +528,7 @@ namespace UEMCP
 
 	void RegisterDataSourceHandlers(FMCPCommandRegistry& Registry)
 	{
+		RegisterChooserInspection(Registry);
 		Registry.Register(TEXT("get_datatable_contents"),     &HandleGetDataTableContents);
 		Registry.Register(TEXT("get_string_table_contents"),  &HandleGetStringTableContents);
 		Registry.Register(TEXT("list_data_asset_types"),      &HandleListDataAssetTypes);

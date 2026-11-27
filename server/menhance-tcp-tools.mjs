@@ -48,6 +48,10 @@ export function initMenhanceTools(toolsData) {
 
 // ── Schemas (name → {description, schema, isReadOp}) ──────────────
 
+const physicsAssetPath = z.string().startsWith('/Game/').max(512);
+const physicsName = z.string().min(1).max(255);
+const twistLimit = z.number().finite().min(1).max(179);
+
 const dataAssetProperty = {
   asset_path: z.string().min(1).max(512).describe('Exact /Game DataAsset package or object path'),
   property_name: z.string().min(1).max(512).describe('Reflected field name or dotted struct path, such as Settings.Threshold or Settings.Weights[1]'),
@@ -313,6 +317,17 @@ export const MENHANCE_SCHEMAS = {
     isReadOp: true,
   },
 
+  get_rigvm_graph: {
+    structuredErrors: true,
+    description: 'Inspect the live Control Rig or RigVM model, including nested graphs, nodes, pin paths, defaults and directed links. Each link uses pin paths within its graph.',
+    schema: { asset_path: z.string().min(1).max(512).describe('Exact /Game package name'), max_pins: z.number().int().min(1).max(4096).optional() },
+    isReadOp: true,
+  },
+  export_asset_inspection: {
+    description: 'Export a clean saved RigVM or Chooser model inspection for engine-free readback. Use read_saved_asset_inspection after the editor closes.',
+    schema: { asset_path: z.string().min(1).max(512), kind: z.enum(['rigvm', 'chooser']) },
+    isReadOp: false,
+  },
   get_anim_graph: {
     description: 'AnimBlueprint static graph read - graphs, state machines, states, transitions, slot nodes, layered bone blend nodes, and optional visual pin topology from the UAnimBlueprint editor asset',
     schema: {
@@ -371,6 +386,31 @@ export const MENHANCE_SCHEMAS = {
     partialRc: { tcpWireType: 'get_string_table_contents', transform: 'identity' },
   },
 
+  get_physics_asset: {
+    description: 'Inspect live PhysicsAsset bodies and constraints by bone and joint name. Includes sphere geometry, shape counts, default twist limits in degrees and both body-local joint frames.',
+    schema: { asset_path: physicsAssetPath },
+    unknownArgumentMessage: 'Supply only asset_path for PhysicsAsset inspection.',
+    structuredErrors: true, isReadOp: true,
+  },
+  set_physics_constraint_limit: {
+    description: 'Set the default twist limit of an existing PhysicsAsset joint in degrees. Read get_physics_asset for joint names. Undoable, use save_asset for persistence.',
+    schema: { asset_path: physicsAssetPath, joint: physicsName, twist_limit_degrees: twistLimit },
+    unknownArgumentMessage: 'Consult describe_tool for the supported physics authoring fields.',
+    structuredErrors: true, isReadOp: false,
+  },
+  add_physics_sphere_body: {
+    description: 'Add one sphere body at a preview mesh bone origin in a PhysicsAsset. Radius is in centimeters. The bone must have no existing body. Undoable, save separately.',
+    schema: { asset_path: physicsAssetPath, bone: physicsName, radius_cm: z.number().finite().min(0.1).max(10000) },
+    unknownArgumentMessage: 'Consult describe_tool for the supported physics authoring fields.',
+    structuredErrors: true, isReadOp: false,
+  },
+  add_physics_constraint: {
+    description: 'Create a twist hinge between existing PhysicsAsset bodies on a child bone and an ancestor. Uses reference-pose joint frames at the child origin, locks swing, limits twist in degrees and disables collisions between the pair. Undoable, save separately.',
+    schema: { asset_path: physicsAssetPath, joint: physicsName, child_bone: physicsName, parent_bone: physicsName, twist_limit_degrees: twistLimit },
+    unknownArgumentMessage: 'Consult describe_tool for the supported physics authoring fields.',
+    structuredErrors: true, isReadOp: false,
+  },
+
   create_data_asset: {
     description: 'Create an unsaved DataAsset. Use a concrete class path from list_data_asset_types, a single asset name and a /Game destination folder. Existing packages are refused. Call save_asset to persist it.',
     structuredErrors: true,
@@ -381,6 +421,13 @@ export const MENHANCE_SCHEMAS = {
       path: z.string().min(1).max(512).optional().describe('Destination folder, default /Game'),
     },
     isReadOp: false,
+  },
+
+  get_chooser_table: {
+    description: 'Inspect live Chooser rows in authored order, name filters, disabled rows, hard or soft asset results and fallback. Unrecognized columns and result types identify partial reads. Use a /Game package path.',
+    structuredErrors: true,
+    schema: { asset_path: z.string().startsWith('/Game/').max(512) },
+    isReadOp: true,
   },
 
   get_data_asset_property: {
@@ -813,7 +860,7 @@ export async function executeMenhanceTool(toolName, args, connectionManager, sen
   }
 
   // Undo and edits made in the asset editor can change pin identities between identical reads.
-  const skipCache = !def.isReadOp || toolName === 'get_data_asset_property' ||
+  const skipCache = !def.isReadOp || toolName === 'get_rigvm_graph' || toolName === 'get_chooser_table' || toolName === 'get_data_asset_property' || toolName === 'get_physics_asset' ||
     (toolName === 'get_anim_graph' && (validated.include_pin_topology || validated.include_actions)) ||
     (toolName === 'get_material_graph' && validated.representation === 'source');
 

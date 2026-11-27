@@ -99,6 +99,9 @@ export function getToolAnnotations(toolName, requirement) {
     case TOOL_REQUIREMENT_KINDS.RC_READ:
       annotations = { readOnlyHint: true };
       break;
+    case TOOL_REQUIREMENT_KINDS.PROJECT_JOB_MUTATION:
+      annotations = { readOnlyHint: false, destructiveHint: toolName === 'cancel_evaluation_job' };
+      break;
     case TOOL_REQUIREMENT_KINDS.LIVE_MUTATION:
     case TOOL_REQUIREMENT_KINDS.RC_MUTATION:
     case TOOL_REQUIREMENT_KINDS.PYTHON_EXEC:

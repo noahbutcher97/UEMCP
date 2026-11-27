@@ -185,7 +185,7 @@ export class ProjectContext {
       };
     }
 
-    if (requirement === TOOL_REQUIREMENT_KINDS.OFFLINE_READ) {
+    if (requirement === TOOL_REQUIREMENT_KINDS.OFFLINE_READ || requirement === TOOL_REQUIREMENT_KINDS.PROJECT_JOB_MUTATION) {
       return { ok: true, identity: this.identity };
     }
 

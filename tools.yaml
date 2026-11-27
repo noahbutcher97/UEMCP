@@ -106,6 +106,28 @@ toolsets:
     priority: null   # built into Phase 1
     description: Project file analysis — always works, no editor needed
     tools:
+      start_evaluation_job:
+        description: "Start or resume a project-bound job on a saved config and map. Returns a durable job ID immediately. Use player_start_spacing for a headless evaluation of player-start clearance, or train_spacing_policy for bounded PPO. Reuse the same request_id and inputs after a disconnect."
+        aliases: ["headless evaluation", "run seeded evaluation", "start training"]
+        params:
+          request_id: { type: string, required: true, description: "Stable caller-chosen identifier (1–80 letters, digits, hyphens or underscores)." }
+          config: { type: string, required: true, description: "Saved /Game DataAsset with a floating Settings.Threshold in metres." }
+          map: { type: string, required: true, description: "Saved /Game map, one persistent level, 2–256 unattached PlayerStarts." }
+          seed: { type: integer, required: true, description: "Nonnegative signed 32-bit integer. Controls evaluation order and training." }
+          kind: { type: string, required: false, description: "player_start_spacing (default) or train_spacing_policy." }
+          steps: { type: integer, required: false, description: "Training only. 32–8192 contextual-bandit steps." }
+      get_evaluation_job:
+        description: "Poll a durable evaluation or PPO training job after reconnecting to the same project. Reports progress, partial artifacts and terminal state."
+        params:
+          job_id: { type: string, required: true }
+      get_evaluation_result:
+        description: "Read the terminal result of a project evaluation, including saved input digests, per-start clearances and the trained policy for a training job."
+        params:
+          job_id: { type: string, required: true }
+      cancel_evaluation_job:
+        description: "Cancel a queued or running project evaluation or training job. Poll until cancellation completes."
+        params:
+          job_id: { type: string, required: true }
       project_info:
         description: Read .uproject, list plugins, engine version, build config
       list_gameplay_tags:
@@ -120,6 +142,12 @@ toolsets:
           config_file: { type: string, required: false, description: "Filename with .ini extension (e.g., DefaultEngine.ini). Omit to list all available config files." }
           section:     { type: string, required: false, description: "Section name without brackets (e.g., /Script/Engine.Engine). Omit to list all sections in the file." }
           key:         { type: string, required: false, description: "Key name within the section. When set, returns all values for the key (multi-value keys return arrays)." }
+      read_saved_asset_inspection:
+        description: Read an offline RigVM graph or Chooser row table from an exported inspection with the editor closed. Verifies the saved package SHA-256 and snapshot schema. Run export_asset_inspection on the clean asset first.
+        aliases: ["saved Control Rig graph", "offline RigVM graph", "saved Chooser rows"]
+        params:
+          asset_path: { type: string, required: true }
+          kind: { type: string, enum: [rigvm, chooser], required: true }
       get_asset_info:
         description: Read .uasset header metadata (type, size, class, references). By default strips large blob tags (>1KB). Set verbose:true to return all tags.
         params:
@@ -1311,6 +1339,26 @@ toolsets:
           asset_path: { type: string, required: true }
       # full_tcp: loads UAnimBlueprint asset instance; returns static AnimGraph topology.
       # offline_pair: bp_list_graphs remains useful for top-level graph presence without editor.
+      get_rigvm_graph:
+        status: shipped
+        transport_layer: tcp-55558
+        requires_editor: true
+        mutates_asset: false
+        aliases: ["Control Rig pins and links", "RigVM graph topology"]
+        description: Inspect live RigVM models including nested graphs and local function libraries. Read each model node, pin direction and default, and directed link endpoints. Call export_asset_inspection for saved readback.
+        params:
+          asset_path: { type: string, required: true }
+          max_pins: { type: integer, required: false, description: "Reject models that exceed this pin count (default 4096)." }
+      export_asset_inspection:
+        status: shipped
+        transport_layer: tcp-55558
+        requires_editor: true
+        mutates_asset: false
+        aliases: ["export RigVM graph", "export Chooser rows"]
+        description: Export an inspection for engine-free readback in the attached project's Saved directory. Requires a clean RigVM or Chooser package with a verified engine save hash. Then use read_saved_asset_inspection.
+        params:
+          asset_path: { type: string, required: true }
+          kind: { type: string, enum: [rigvm, chooser], required: true }
       get_anim_graph:
         initially_visible: true
         status: shipped
@@ -1509,6 +1557,76 @@ toolsets:
         params:
           asset_path: { type: string, required: true }
 
+  physics-assets:
+    layer: tcp-55558
+    priority: 3
+    description: PhysicsAsset body and constraint authoring in the editor
+    tools:
+      get_physics_asset:
+        status: shipped
+        availability_layer: tcp-55558
+        transport_layer: tcp-55558
+        requires_editor: true
+        requires_pie: false
+        mutates_asset: false
+        mutates_level: false
+        saves_asset: false
+        compiles_asset: false
+        offline_fallback: false
+        description: Read PhysicsAsset bodies, spheres, joint names, default twist limits and both joint frames. Translations are centimeters and orientations use XYZW quaternions.
+        params:
+          asset_path: { type: string, required: true }
+      set_physics_constraint_limit:
+        status: shipped
+        availability_layer: tcp-55558
+        transport_layer: tcp-55558
+        requires_editor: true
+        requires_pie: false
+        mutates_asset: true
+        mutates_level: false
+        saves_asset: false
+        compiles_asset: false
+        offline_fallback: false
+        description: Set the default twist limit of a named joint in degrees. Undoable. Use save_asset for persistence.
+        params:
+          asset_path: { type: string, required: true }
+          joint: { type: string, required: true }
+          twist_limit_degrees: { type: number, required: true }
+      add_physics_sphere_body:
+        status: shipped
+        availability_layer: tcp-55558
+        transport_layer: tcp-55558
+        requires_editor: true
+        requires_pie: false
+        mutates_asset: true
+        mutates_level: false
+        saves_asset: false
+        compiles_asset: false
+        offline_fallback: false
+        description: Create one sphere body at the origin of a preview mesh bone. Radius is in centimeters. Undoable. Use save_asset for persistence.
+        params:
+          asset_path: { type: string, required: true }
+          bone: { type: string, required: true }
+          radius_cm: { type: number, required: true }
+      add_physics_constraint:
+        status: shipped
+        availability_layer: tcp-55558
+        transport_layer: tcp-55558
+        requires_editor: true
+        requires_pie: false
+        mutates_asset: true
+        mutates_level: false
+        saves_asset: false
+        compiles_asset: false
+        offline_fallback: false
+        description: Create a twist hinge between child and ancestor bodies at the child reference-pose origin. Lock swings and disable pair collision. Undoable. Use save_asset for persistence.
+        params:
+          asset_path: { type: string, required: true }
+          joint: { type: string, required: true }
+          child_bone: { type: string, required: true }
+          parent_bone: { type: string, required: true }
+          twist_limit_degrees: { type: number, required: true }
+
   data-assets:
     layer: tcp-55558
     priority: 3
@@ -1530,6 +1648,20 @@ toolsets:
           name:      { type: string, required: true }
           subclass:  { type: string, required: true }
           path:      { type: string, required: false }
+      get_chooser_table:
+        status: shipped
+        availability_layer: tcp-55558
+        transport_layer: tcp-55558
+        requires_editor: true
+        requires_pie: false
+        mutates_asset: false
+        mutates_level: false
+        saves_asset: false
+        compiles_asset: false
+        offline_fallback: false
+        description: Inspect ordered Chooser rows, name-filter comparisons and bindings, enabled state, asset results and fallback. Unsupported columns or results retain their indices and mark the response partial.
+        params:
+          asset_path: { type: string, required: true }
       get_data_asset_property:
         status: shipped
         availability_layer: tcp-55558
@@ -1835,7 +1967,7 @@ toolsets:
         saves_asset: false
         compiles_asset: false
         offline_fallback: false
-        description: Execute Python script. SECURITY-SENSITIVE — requires --enable-python-exec startup flag (Layer 1 server-side gate; PYTHON_EXEC_DISABLED otherwise) AND must pass plugin-side deny-list (rejects os/subprocess/eval/exec/open/__import__ → PYTHON_EXEC_DENY_LIST). Every call audit-logged via LogUEMCPSecurity.
+        description: Run an editor Python script with explicit server opt-in via --enable-python-exec or UEMCP_ENABLE_PYTHON_EXEC=1. The default server returns PYTHON_EXEC_DISABLED before dispatch. The native policy logs denied scripts as DENIED and accepted scripts as EXEC before execution under [UEMCP-PYTHON-EXEC].
         params:
           command: { type: string, required: true }
       # reduced_scope: Run method binding + editor menu registration; standard BP introspection shipped offline

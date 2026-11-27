@@ -32,6 +32,10 @@
 			"Enabled": true
 		},
 		{
+			"Name": "RigVM",
+			"Enabled": true
+		},
+		{
 			"Name": "EnhancedInput",
 			"Enabled": true
 		},

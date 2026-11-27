@@ -9,6 +9,7 @@
 	"Plugins": [
 		{ "Name": "AndroidFileServer", "Enabled": false },
 		{ "Name": "UEMCP", "Enabled": true },
+		{ "Name": "Chooser", "Enabled": true },
 		{ "Name": "RemoteControl", "Enabled": true },
 		{ "Name": "PythonScriptPlugin", "Enabled": true }
 	]

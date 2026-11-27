@@ -210,6 +210,7 @@ export class ToolIndex {
     if (queryTokens.length === 0) return [];
 
     // Normalize query string for Tier 1 (exact full tool name match)
+    const aliasPhrase = query.trim().toLowerCase().replace(/\s+/g, ' ');
     const queryNormalized = query.trim().toLowerCase().replace(/[^a-z0-9_]/g, '_');
 
     // Score each entry
@@ -269,6 +270,10 @@ export class ToolIndex {
       }
 
       if (aliasHit) score += WEIGHT.ALIAS_BONUS;
+      // A declared multiword alias names a specific workflow even when another tool shares a noun.
+      if (aliasPhrase.includes(' ') && entry.aliases.some(alias => alias.toLowerCase() === aliasPhrase)) {
+        score += WEIGHT.NAME_EXACT;
+      }
 
       if (score > 0) {
         // Coverage bonus: reward tools matching ALL query terms.

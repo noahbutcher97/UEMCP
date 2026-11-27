@@ -81,3 +81,11 @@ Active toolset membership and layer assignment come from `tools.yaml`.
 | `add_input_action_node` | Add input action event node (shared with blueprint editing) |
 
 **Input mapping**: `create_input_mapping` is superseded by `create_input_action` and `create_input_mapping_context`.
+
+## RigVM and Chooser inspections
+
+`get_rigvm_graph` inspects the current editor model of a RigVM client asset, including Control Rigs, nested graphs and local function libraries. Use each graph's path together with its node name or pin path to identify an endpoint. The link list is directed from source pin to target pin. Unlinked pins retain their defaults. Orphaned pins and unresolved links appear in `issues` and set `complete` to false. A per-call `max_pins` budget defaults to 4,096. A read that exceeds the topology or text budget returns `RIGVM_INSPECTION_LIMIT`.
+
+For a saved read, call `export_asset_inspection` with the package path and `kind` set to `rigvm` or `chooser`. Save intentionally first if the asset has unsaved changes. Export checks the loaded package against the engine's hash of its saved header and exports. It writes a versioned snapshot under the attached project's `Saved/UEMCP/Inspections`. It accepts editor packages up to 64 MiB with a supported engine save hash. Older packages with no usable save hash can still be inspected live.
+
+With Unreal closed, call `read_saved_asset_inspection` with the same arguments. It reports the snapshot origin and source SHA-256 and rejects a changed source package, a mismatched payload digest or an unsupported schema. Unsaved editor changes are visible through the live tool while the saved snapshot continues to describe the disk version. After saving new changes, export again. Direct package decoding of these model types remains open.

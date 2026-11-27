@@ -9,6 +9,7 @@
 #include "AssetEditorCapture.h"
 #include "CompileDiagnosticHandler.h"
 #include "DataSourceHandlers.h"
+#include "PhysicsAssetHandlers.h"
 #include "EdgeCaseHandlers.h"
 #include "GraphTraversalHandlers.h"
 #include "ReflectionWalker.h"
@@ -165,8 +166,10 @@ namespace UEMCP
 		RegisterCompileDiagnosticHandlers(*this);
 		RegisterReflectionHandlers(*this);
 		RegisterGraphTraversalHandlers(*this);
+		RegisterRigVMHandlers(*this);
 		RegisterEdgeCaseHandlers(*this);
 		RegisterDataSourceHandlers(*this);
+		RegisterPhysicsAssetHandlers(*this);
 		RegisterSidecarCommands(*this);
 		RegisterVisualCaptureHandler(*this);
 

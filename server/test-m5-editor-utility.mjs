@@ -12,11 +12,14 @@ import { ConnectionManager } from './connection-manager.mjs';
 import { FakeTcpResponder, TestRunner, createTestConfig } from './test-helpers.mjs';
 import {
   initM5EditorUtilityTools,
+  createEditorUtilityExecutor,
   executeM5EditorUtilityTool,
   getM5EditorUtilityToolDefs,
   M5_EDITOR_UTILITY_SCHEMAS,
   _isPythonExecEnabledForTests,
 } from './m5-editor-utility-tools.mjs';
+import { createUemcpServer } from './create-uemcp-server.mjs';
+import { FakeMcpTransport } from './test-mcp-fake-transport.mjs';
 
 // ── Initialize wire-type map from a fake YAML structure ──────────
 // Identity wire types — yaml editor-utility section currently declares
@@ -154,6 +157,49 @@ console.log('\n── Group 2: Layer 1 Gate — PYTHON_EXEC_DISABLED ──');
     'Wire dispatch occurred');
   t.assert(fake.lastCall('run_python_command').port === 55558,
     'Routed to TCP:55558');
+}
+
+// A default client can learn the policy without starting or verifying an editor.
+{
+  const transport = new FakeMcpTransport();
+  const app = await createUemcpServer({
+    env: {}, argv: [], cwd: process.cwd(), workspaceRoots: [],
+    writeProjectCodenames: false, processInspector: () => [], stderr: { write() {} },
+  });
+  try {
+    await app.start(transport);
+    await transport.sendClientRequest('initialize', {
+      protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'default-python-policy', version: '1' },
+    });
+    const response = await transport.sendClientRequest('tools/call', {
+      name: 'call_mutating_tool',
+      arguments: { tool: 'run_python_command', arguments: { command: 'print(unreal.SystemLibrary.get_engine_version())' } },
+    });
+    const error = response.result?.structuredContent ?? JSON.parse(response.result.content[0].text);
+    t.assert(response.result.isError === true && error.code === 'PYTHON_EXEC_DISABLED',
+      'MCP reports default-off policy before asking for an editor or project');
+  } finally {
+    await app.server.close();
+  }
+}
+
+// Each stdio server owns its startup policy, including when multiple server
+// instances are created in one process. Only the opted-in instance may dispatch.
+{
+  const enabled = createEditorUtilityExecutor(fakeToolsYaml, { pythonExecEnabled: true });
+  const disabled = createEditorUtilityExecutor(fakeToolsYaml);
+  const fake = new FakeTcpResponder().on('ping', { status: 'success' })
+    .on('run_python_command', { status: 'success', result: { output: '5.9' } });
+  const { config } = createTestConfig(process.cwd(), fake);
+  const cm = new ConnectionManager(config);
+  const args = { command: 'print(unreal.SystemLibrary.get_engine_version())' };
+  const before = await disabled('run_python_command', args, cm);
+  const allowed = await enabled('run_python_command', args, cm);
+  const after = await disabled('run_python_command', args, cm);
+  t.assert(before.code === 'PYTHON_EXEC_DISABLED' && after.code === before.code,
+    'default executor retains its policy while an opted-in executor is in use');
+  t.assert(allowed.status === 'success' && fake.callsFor('run_python_command').length === 1,
+    'only the opted-in executor dispatches the benign editor read');
 }
 
 // ═══════════════════════════════════════════════════════════════

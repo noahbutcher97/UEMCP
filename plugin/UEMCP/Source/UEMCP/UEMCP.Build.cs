@@ -30,9 +30,11 @@ public class UEMCP : ModuleRules
 			"Networking",
 		});
 
+		AddEngineThirdPartyPrivateStaticDependencies(Target, "OpenSSL");
 		PrivateDependencyModuleNames.AddRange(new string[]
 		{
 			"UnrealEd",
+			"PhysicsUtilities", // Physics Asset Editor body and joint creation
 			"MaterialEditor", // Typed graph authoring helpers
 			"AssetTools", // Writable-folder permissions for graph insertion
 			"RHI", // Current shader platform/feature level for compile diagnostics
@@ -43,6 +45,8 @@ public class UEMCP : ModuleRules
 			"AnimGraphRuntime", // FAnimNode_Slot / FAnimNode_LayeredBoneBlend payload structs
 			"BlueprintGraph",
 			"InputBlueprintNodes",
+			"RigVM",
+			"RigVMDeveloper",
 			"Kismet",
 			"GameplayTags",
 			"Json",

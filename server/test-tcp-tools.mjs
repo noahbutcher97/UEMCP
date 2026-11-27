@@ -708,6 +708,12 @@ console.log('\n── Group 25: P0-10 Vector Shape Validation ──');
     t.assert(fake.callsFor('create_data_asset').length === 2,
       'create_data_asset retries reach the editor so it can check for an existing package');
     const field = { asset_path: '/Game/DA_Config', property_name: 'Settings.Threshold' };
+    const chooser = { asset_path: '/Game/ChooserFixture/CT_Selection' };
+    fake.on('get_chooser_table', { status: 'success', result: { rows: [] } });
+    await executeMenhanceTool('get_chooser_table', chooser, cm);
+    await executeMenhanceTool('get_chooser_table', chooser, cm);
+    t.assert(fake.callsFor('get_chooser_table').length === 2, 'live Chooser reads can observe unsaved row swaps');
+
     fake.on('get_data_asset_property', { status: 'success', result: { value: 0.5 } });
     await executeMenhanceTool('get_data_asset_property', field, cm);
     fake.on('get_data_asset_property', { status: 'success', result: { value: 0.25 } });

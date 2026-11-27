@@ -34,9 +34,13 @@ function assertTopIncludesAny(query, expectedAny, maxResults = 5) {
   );
 }
 
+assertTopIncludes('Control Rig pins and links', 'get_rigvm_graph');
+assertTopIncludes('offline RigVM graph', 'read_saved_asset_inspection');
+assertTopIncludes('export RigVM graph', 'export_asset_inspection');
 assertTopIncludes('create data asset from subclass', 'create_data_asset');
 assertTopIncludes('edit nested numeric data asset property', 'set_data_asset_property');
 assertTopIncludes('read unsaved data asset property', 'get_data_asset_property');
+assertTopIncludes('inspect chooser table rows fallback animation', 'get_chooser_table');
 assertTopIncludes('open saved editor map', 'open_map');
 assertTopIncludes('blueprint graph pins saved function inspect', 'inspect_blueprint_inputs');
 assertTopIncludes('blueprint node pins function call arguments', 'inspect_blueprint_inputs');

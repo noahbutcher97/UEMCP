@@ -26,4 +26,5 @@ namespace UEMCP
 	class FMCPCommandRegistry;
 
 	void RegisterGraphTraversalHandlers(FMCPCommandRegistry& Registry);
+	void RegisterRigVMHandlers(FMCPCommandRegistry& Registry);
 }

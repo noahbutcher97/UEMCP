@@ -59,12 +59,17 @@ export {
   extractBPEdgeTopologySafe,
 } from './offline-blueprint-tools.mjs';
 
+import { readSavedInspection } from './saved-inspection-snapshot.mjs';
+
 export async function executeOfflineTool(toolName, params, projectRoot, readLiveBlueprintPins) {
   if (!projectRoot) {
     throw new Error('Project root not configured — offline tools require an attached project path');
   }
 
   switch (toolName) {
+    case 'read_saved_asset_inspection':
+      return readSavedInspection(projectRoot, params);
+
     case 'project_info':
       return await projectInfo(projectRoot);
 

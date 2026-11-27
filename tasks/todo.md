@@ -186,12 +186,12 @@ Mark a unit complete after its acceptance review records the supported scope.
   - [x] Edit an existing array element on both engines and verify sibling values, invalid indices, Undo/Redo and save/reopen.
   - [x] Assign and clear a typed hard asset reference on both engines. Verify incompatible and missing targets, Undo/Redo and save/reopen.
 - [x] [Open an editor map](../docs/plans/editor-workflow-gaps.md#3-open-an-editor-map) on UE 5.8.4 and 5.9 Preview 2, including unsaved-change recovery.
-- [ ] [Run an evaluation headlessly](../docs/plans/editor-workflow-gaps.md#4-run-an-evaluation-headlessly).
-- [ ] [Manage long-running evaluation and training jobs](../docs/plans/editor-workflow-gaps.md#5-manage-long-running-evaluation-and-training-jobs).
-- [ ] [Author PhysicsAsset bodies and constraints](../docs/plans/editor-workflow-gaps.md#6-author-physicsasset-bodies-and-constraints).
-- [ ] [Inspect Control Rig and RigVM graphs](../docs/plans/editor-workflow-gaps.md#7-inspect-control-rig-and-rigvm-graphs).
-- [ ] [Inspect Chooser rows and results](../docs/plans/editor-workflow-gaps.md#8-inspect-chooser-rows-and-results) under U4.
-- [ ] [Complete normal workflows with Python disabled](../docs/plans/editor-workflow-gaps.md#9-complete-normal-workflows-with-python-disabled).
+- [x] [Run an evaluation headlessly](../docs/plans/editor-workflow-gaps.md#4-run-an-evaluation-headlessly).
+- [x] [Manage long-running evaluation and training jobs](../docs/plans/editor-workflow-gaps.md#5-manage-long-running-evaluation-and-training-jobs).
+- [x] [Author PhysicsAsset bodies and constraints](../docs/plans/editor-workflow-gaps.md#6-author-physicsasset-bodies-and-constraints). Verified existing twist edits, sphere and hinge creation, Undo/Redo, save/reopen and fixed-step Chaos response on Win64 UE 5.9 Preview 2.
+- [x] [Inspect Control Rig and RigVM graphs](../docs/plans/editor-workflow-gaps.md#7-inspect-control-rig-and-rigvm-graphs). Live topology and hash-verified saved snapshots qualified on UE 5.9 Preview 2. Direct package graph decoding remains open.
+- [x] [Inspect Chooser rows and results](../docs/plans/editor-workflow-gaps.md#8-inspect-chooser-rows-and-results) under U4.
+- [x] [Complete normal workflows with Python disabled](../docs/plans/editor-workflow-gaps.md#9-complete-normal-workflows-with-python-disabled).
 
 ## Checkpoint for every selected slice
 

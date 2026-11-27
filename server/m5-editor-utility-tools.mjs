@@ -32,36 +32,21 @@
 
 import { z } from 'zod';
 
-// ── Module-scope state (set by initM5EditorUtilityTools) ──────────
-
-let M5_EDITOR_UTILITY_WIRE_MAP = {};
-
-// PYTHON_EXEC_DISABLED gate — flipped on by server.mjs at startup if either
-// `--enable-python-exec` argv flag OR `UEMCP_ENABLE_PYTHON_EXEC=1` env var is
-// present. Defaults to `false` so that a server launched with no flag refuses
-// `run_python_command` calls before they reach the wire. A test harness can
-// also call initM5EditorUtilityTools(toolsData, { pythonExecEnabled: true })
-// to exercise the success path.
-let _pythonExecEnabled = false;
-
-/**
- * Initialize wire_type map + security flags from parsed tools.yaml + options.
- * Call once from server.mjs after toolsetManager.load().
- *
- * @param {object} toolsData — parsed tools.yaml root object
- * @param {object} [options]
- * @param {boolean} [options.pythonExecEnabled=false] — Layer 1 server-side gate
- */
-export function initM5EditorUtilityTools(toolsData, options = {}) {
-  M5_EDITOR_UTILITY_WIRE_MAP = {};
-  _pythonExecEnabled = options.pythonExecEnabled === true;
-  const toolset = toolsData?.toolsets?.['editor-utility'];
-  if (!toolset?.tools) return;
-  for (const [name, def] of Object.entries(toolset.tools)) {
-    if (def.wire_type) {
-      M5_EDITOR_UTILITY_WIRE_MAP[name] = def.wire_type;
-    }
-  }
+// Legacy direct callers can configure their default executor. Each MCP server
+// instead captures a private policy and wire map when it is prepared.
+function editorPolicy(toolsData, options = {}) {
+  const tools = toolsData?.toolsets?.['editor-utility']?.tools ?? {};
+  const wireMap = Object.fromEntries(Object.entries(tools).filter(([, def]) => def.wire_type)
+    .map(([name, def]) => [name, def.wire_type]));
+  return { wireMap, pythonExecEnabled: options.pythonExecEnabled === true };
+}
+let defaultPolicy = editorPolicy();
+export function initM5EditorUtilityTools(toolsData, options) {
+  defaultPolicy = editorPolicy(toolsData, options);
+}
+export function createEditorUtilityExecutor(toolsData, options) {
+  const policy = editorPolicy(toolsData, options);
+  return (name, args, manager) => executeM5EditorUtilityTool(name, args, manager, policy);
 }
 
 // ── Schemas (name → {description, schema, isReadOp}) ──────────────
@@ -74,7 +59,8 @@ export function initM5EditorUtilityTools(toolsData, options = {}) {
 export const M5_EDITOR_UTILITY_SCHEMAS = {
 
   run_python_command: {
-    description: 'Execute Python script via Python Editor Script Plugin. SECURITY-SENSITIVE — requires --enable-python-exec startup flag (Layer 1) AND passes a deny-list scan (Layer 2: rejects scripts containing os/subprocess/eval/exec/open/__import__). Every call audit-logged.',
+    structuredErrors: true,
+    description: 'Execute Python script via Python Editor Script Plugin. SECURITY-SENSITIVE — requires --enable-python-exec startup flag (Layer 1) AND passes a deny-list scan (Layer 2: rejects scripts containing os/subprocess/eval/exec/open/__import__). The editor audits scripts that reach its policy check. A default-off server rejects the call before dispatch.',
     schema: {
       command: z.string().describe('Python statement(s) to execute. Multi-line OK.'),
     },
@@ -163,7 +149,7 @@ const M5_EDITOR_UTILITY_TIMEOUT_OVERRIDES = {
  * leave no audit footprint on the editor (intentional — flag-policy is a
  * server concern, not an editor event).
  */
-function pythonExecDisabledResponse() {
+export function pythonExecDisabledResponse() {
   return {
     status: 'error',
     error:  'run_python_command disabled by server policy — restart the MCP server with --enable-python-exec (or UEMCP_ENABLE_PYTHON_EXEC=1) to enable',
@@ -179,7 +165,7 @@ function pythonExecDisabledResponse() {
  * @param {import('./connection-manager.mjs').ConnectionManager} connectionManager
  * @returns {Promise<object>}
  */
-export async function executeM5EditorUtilityTool(toolName, args, connectionManager) {
+export async function executeM5EditorUtilityTool(toolName, args, connectionManager, policy = defaultPolicy) {
   const def = M5_EDITOR_UTILITY_SCHEMAS[toolName];
   if (!def) {
     return {
@@ -193,7 +179,7 @@ export async function executeM5EditorUtilityTool(toolName, args, connectionManag
   // so that even a malformed Python request gets the policy denial rather than
   // a generic schema error — the security signal is the response the caller
   // most needs to see.
-  if (toolName === 'run_python_command' && !_pythonExecEnabled) {
+  if (toolName === 'run_python_command' && !policy.pythonExecEnabled) {
     return pythonExecDisabledResponse();
   }
 
@@ -206,7 +192,7 @@ export async function executeM5EditorUtilityTool(toolName, args, connectionManag
     sendOpts.timeoutMs = timeoutOverride;
   }
 
-  const wireType = M5_EDITOR_UTILITY_WIRE_MAP[toolName] || toolName;
+  const wireType = policy.wireMap[toolName] || toolName;
   return connectionManager.send('tcp-55558', wireType, validated, sendOpts);
 }
 
@@ -218,5 +204,5 @@ export function getM5EditorUtilityToolDefs() {
 // without exporting the module-scope variable directly. Internal API; avoid
 // using outside tests.
 export function _isPythonExecEnabledForTests() {
-  return _pythonExecEnabled;
+  return defaultPolicy.pythonExecEnabled;
 }
