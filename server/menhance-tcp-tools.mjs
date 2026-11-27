@@ -50,7 +50,7 @@ export function initMenhanceTools(toolsData) {
 
 const dataAssetProperty = {
   asset_path: z.string().min(1).max(512).describe('Exact /Game DataAsset package or object path'),
-  property_name: z.string().min(1).max(512).describe('Reflected field name or dotted struct path, such as Settings.Threshold'),
+  property_name: z.string().min(1).max(512).describe('Reflected field name or dotted struct path, such as Settings.Threshold or Settings.Weights[1]'),
 };
 
 export const MENHANCE_SCHEMAS = {
@@ -392,7 +392,7 @@ export const MENHANCE_SCHEMAS = {
   },
 
   set_data_asset_property: {
-    description: 'Edit one numeric or FVector DataAsset field in an undoable transaction. Supply one number or the complete vector [X,Y,Z]. Provide a dotted field path for a nested struct. Returns prior and current values. Call save_asset separately to persist.',
+    description: 'Edit one numeric or FVector DataAsset field in an undoable transaction. Supply one number or the complete vector [X,Y,Z]. Use Field[index] for an existing dynamic array element, including elements in nested structs. Returns prior and current values. Call save_asset separately to persist.',
     structuredErrors: true,
     unknownArgumentMessage: 'Use asset_path, property_name and value.',
     schema: { ...dataAssetProperty, value: z.union([z.number().finite(), z.array(z.number().finite()).length(3)]) },

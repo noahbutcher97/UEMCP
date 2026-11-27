@@ -16,6 +16,9 @@ struct FUEMCPFixtureEvaluationSettings
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Evaluation")
 	FVector Offset = FVector(1.0, 2.0, 3.0);
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Evaluation")
+	TArray<float> Weights = {1.0f, 2.0f, 3.0f};
 };
 
 UCLASS(BlueprintType)

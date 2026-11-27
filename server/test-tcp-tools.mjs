@@ -723,6 +723,11 @@ console.log('\n── Group 25: P0-10 Vector Shape Validation ──');
     }
     t.assert(fake.callsFor('set_data_asset_property').length === 1, 'only the complete numeric vector reaches the editor');
 
+    const indexed = { ...field, property_name: 'Settings.Weights[1]', value: 8.5 };
+    await executeMenhanceTool('set_data_asset_property', indexed, cm);
+    t.assert(fake.lastCall('set_data_asset_property').params.property_name === indexed.property_name,
+      'the indexed path reaches the editor unchanged');
+
     fake.on('open_map', { status: 'success', result: { changed: false } });
     for (let attempt = 0; attempt < 2; attempt++) {
       await executeMenhanceTool('open_map', { map_path: '/Game/Maps/Evaluation' }, cm);

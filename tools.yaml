@@ -1541,7 +1541,7 @@ toolsets:
         saves_asset: false
         compiles_asset: false
         offline_fallback: false
-        description: Read a live numeric or FVector DataAsset property, including unsaved edits. Use a /Game package or exact object path and a dotted field name such as Settings.Threshold. Returns value and dirty state. Vectors use [X,Y,Z].
+        description: Read a live numeric or FVector DataAsset property, including unsaved edits. Use a /Game package or exact object path and a dotted field name such as Settings.Threshold or Settings.Weights[1]. Returns value and dirty state. Vectors use [X,Y,Z].
         params:
           asset_path:    { type: string, required: true }
           property_name: { type: string, required: true }
@@ -1556,7 +1556,7 @@ toolsets:
         saves_asset: false
         compiles_asset: false
         offline_fallback: false
-        description: Change a numeric or FVector DataAsset property in an editor transaction. Use a dotted nested field such as Settings.Threshold. Supports int32, float, double and whole FVector values. Returns previous and live values and dirty state. Call save_asset for persistence.
+        description: Change a numeric or FVector DataAsset property in an editor transaction. Use a dotted nested field such as Settings.Threshold or Settings.Weights[1]. Supports int32, float, double and whole FVector values. Returns previous and live values and dirty state. Call save_asset for persistence.
         params:
           asset_path:    { type: string, required: true }
           property_name: { type: string, required: true }

@@ -141,11 +141,11 @@ namespace UEMCP
 
 		// Accept only values representable by the declared leaf type. Validate before opening
 		// the transaction so a typo, a lossy integer conversion or a no-op preserves Redo.
-		bool CoerceDataAssetNumber(const FNumericProperty* Leaf, double& Value)
+		bool CoerceDataAssetNumber(const FNumericProperty* Leaf, const FProperty* Field, double& Value)
 		{
 			if (!FMath::IsFinite(Value)) return false;
-			if ((Leaf->HasMetaData(TEXT("ClampMin")) && Value < Leaf->GetDoubleMetaData(TEXT("ClampMin"))) ||
-				(Leaf->HasMetaData(TEXT("ClampMax")) && Value > Leaf->GetDoubleMetaData(TEXT("ClampMax")))) return false;
+			if ((Field->HasMetaData(TEXT("ClampMin")) && Value < Field->GetDoubleMetaData(TEXT("ClampMin"))) ||
+				(Field->HasMetaData(TEXT("ClampMax")) && Value > Field->GetDoubleMetaData(TEXT("ClampMax")))) return false;
 			if (Leaf->IsInteger()) return Value >= MIN_int32 && Value <= MAX_int32 && static_cast<int32>(Value) == Value;
 			if (CastField<FFloatProperty>(Leaf))
 			{
@@ -169,13 +169,13 @@ namespace UEMCP
 				MakeShared<FJsonValueNumber>(Vector.X), MakeShared<FJsonValueNumber>(Vector.Y), MakeShared<FJsonValueNumber>(Vector.Z)});
 		}
 
-		bool PrepareDataAssetValue(const TSharedPtr<FJsonObject>& Params, const FProperty* Property, const FNumericProperty* Numeric, void* OutValue)
+		bool PrepareDataAssetValue(const TSharedPtr<FJsonObject>& Params, const FProperty* Field, const FNumericProperty* Numeric, void* OutValue)
 		{
 			if (Numeric)
 			{
 				double Value;
 				if (!Params->HasTypedField<EJson::Number>(TEXT("value")) || !Params->TryGetNumberField(TEXT("value"), Value) ||
-					!CoerceDataAssetNumber(Numeric, Value)) return false;
+					!CoerceDataAssetNumber(Numeric, Field, Value)) return false;
 				if (Numeric->IsInteger()) Numeric->SetIntPropertyValue(OutValue, static_cast<int64>(Value));
 				else Numeric->SetFloatingPointPropertyValue(OutValue, Value);
 				return true;
@@ -190,8 +190,59 @@ namespace UEMCP
 			FVector& Vector = *static_cast<FVector*>(OutValue);
 			FString Error;
 			return ParseVector3(Params, TEXT("value"), Vector, Error) && !Vector.ContainsNaN() &&
-				(!Property->HasMetaData(TEXT("ClampMin")) || Vector.GetMin() >= Property->GetDoubleMetaData(TEXT("ClampMin"))) &&
-				(!Property->HasMetaData(TEXT("ClampMax")) || Vector.GetMax() <= Property->GetDoubleMetaData(TEXT("ClampMax")));
+				(!Field->HasMetaData(TEXT("ClampMin")) || Vector.GetMin() >= Field->GetDoubleMetaData(TEXT("ClampMin"))) &&
+				(!Field->HasMetaData(TEXT("ClampMax")) || Vector.GetMax() <= Field->GetDoubleMetaData(TEXT("ClampMax")));
+		}
+
+		struct FDataAssetPathStep
+		{
+			FProperty* Field;
+			int32 Element;
+		};
+
+#if ENGINE_MAJOR_VERSION > 5 || (ENGINE_MAJOR_VERSION == 5 && ENGINE_MINOR_VERSION >= 9)
+		using FArrayEventKey = FPropertyChangeEventContainerKey;
+		FArrayEventKey ArrayEventKey(FProperty* Field) { return FArrayEventKey(Field); }
+#else
+		using FArrayEventKey = FString;
+		FArrayEventKey ArrayEventKey(FProperty* Field) { return Field->GetName(); }
+#endif
+
+		// A Pre/PostEditChange callback can reallocate an array. Never retain an element pointer across one.
+		void* ResolveFieldAddress(UDataAsset* Asset, const TArray<FDataAssetPathStep>& Steps)
+		{
+			void* Address = Asset;
+			for (const FDataAssetPathStep& Step : Steps)
+			{
+				Address = Step.Field->ContainerPtrToValuePtr<void>(Address);
+				if (Step.Element != INDEX_NONE)
+				{
+					FScriptArrayHelper Array(CastFieldChecked<FArrayProperty>(Step.Field), Address);
+					if (!Array.IsValidIndex(Step.Element)) return nullptr;
+					Address = Array.GetRawPtr(Step.Element);
+				}
+			}
+			return Address;
+		}
+
+		bool ParseFieldSegment(FString& Name, int32& Element)
+		{
+			Element = INDEX_NONE;
+			int32 Open;
+			if (!Name.FindChar(TEXT('['), Open)) return !Name.Contains(TEXT("]"));
+			if (!Open || !Name.EndsWith(TEXT("]"))) return false;
+			const FString Digits = Name.Mid(Open + 1, Name.Len() - Open - 2);
+			if (Digits.IsEmpty() || Digits.Len() > 10) return false;
+			int64 Parsed = 0;
+			for (TCHAR Digit : Digits)
+			{
+				if (Digit < TEXT('0') || Digit > TEXT('9')) return false;
+				Parsed = Parsed * 10 + Digit - TEXT('0');
+			}
+			if (Parsed > MAX_int32) return false;
+			Element = static_cast<int32>(Parsed);
+			Name.LeftInline(Open);
+			return !Name.Contains(TEXT("]"));
 		}
 
 		void HandleDataAssetProperty(const TSharedPtr<FJsonObject>& Params, TSharedPtr<FJsonObject>& OutResponse, bool bWrite)
@@ -222,13 +273,21 @@ namespace UEMCP
 				return;
 			}
 			UStruct* Owner = Asset->GetClass();
-			void* Address = Asset;
+			TArray<FDataAssetPathStep> Steps;
+			TMap<FArrayEventKey, int32> ArrayIndices;
 			TArray<FString> Segments;
 			PropertyName.ParseIntoArray(Segments, TEXT("."), false);
 			FProperty* Property = nullptr;
 			for (int32 Index = 0; Index < Segments.Num(); ++Index)
 			{
-				Property = Owner->FindPropertyByName(FName(*Segments[Index], FNAME_Find));
+				FString Name = Segments[Index];
+				int32 Element;
+				if (!ParseFieldSegment(Name, Element))
+				{
+					BuildErrorResponse(OutResponse, TEXT("Use Field or Field[nonnegative index]"), TEXT("INVALID_PROPERTY_PATH"));
+					return;
+				}
+				Property = Owner->FindPropertyByName(FName(*Name, FNAME_Find));
 				if (!Property || !Property->HasAnyPropertyFlags(CPF_Edit) || Property->HasAnyPropertyFlags(CPF_Transient))
 				{
 					BuildErrorResponse(OutResponse, FString::Printf(TEXT("Unknown or unavailable field '%s'"), *Segments[Index]), TEXT("INVALID_PROPERTY_PATH"));
@@ -248,7 +307,18 @@ namespace UEMCP
 					BuildErrorResponse(OutResponse, TEXT("Field is read-only, conditional or nontransactional"), TEXT("READ_ONLY"));
 					return;
 				}
-				Address = Property->ContainerPtrToValuePtr<void>(Address);
+				Steps.Add({Property, Element});
+				if (Element != INDEX_NONE)
+				{
+					const FArrayProperty* Array = CastField<FArrayProperty>(Property);
+					if (!Array || ArrayIndices.Contains(ArrayEventKey(Property)))
+					{
+						BuildErrorResponse(OutResponse, TEXT("An index requires a dynamic array with an unambiguous field name"), TEXT("INVALID_PROPERTY_PATH"));
+						return;
+					}
+					ArrayIndices.Add(ArrayEventKey(Property), Element);
+					Property = Array->Inner;
+				}
 				if (Index + 1 < Segments.Num())
 				{
 					const FStructProperty* Struct = CastField<FStructProperty>(Property);
@@ -268,6 +338,12 @@ namespace UEMCP
 				return;
 			}
 			const FNumericProperty* Numeric = CastField<FNumericProperty>(Property);
+			void* Address = ResolveFieldAddress(Asset, Steps);
+			if (!Address)
+			{
+				BuildErrorResponse(OutResponse, TEXT("Array index is outside the existing elements"), TEXT("INDEX_OUT_OF_RANGE"));
+				return;
+			}
 			const TSharedPtr<FJsonValue> Previous = ReadDataAssetValue(Numeric, Address);
 			if (!Previous)
 			{
@@ -278,7 +354,7 @@ namespace UEMCP
 			if (bWrite)
 			{
 				FPropertyTempVal NewValue(Property);
-				if (!PrepareDataAssetValue(Params, Property, Numeric, NewValue.Get()))
+				if (!PrepareDataAssetValue(Params, Steps.Last().Field, Numeric, NewValue.Get()))
 				{
 					BuildErrorResponse(OutResponse, bVector ? TEXT("Expected three finite numbers [X,Y,Z] within the field bounds") :
 						TEXT("Supply a JSON number within the field's type and clamp bounds"), TEXT("INVALID_VALUE"));
@@ -291,11 +367,22 @@ namespace UEMCP
 					Asset->SetFlags(RF_Transactional);
 					Asset->Modify();
 					Asset->PreEditChange(Chain);
-					Property->CopyCompleteValue(Address, NewValue.Get());
-					FPropertyChangedEvent Event(Property, EPropertyChangeType::ValueSet);
+					Address = ResolveFieldAddress(Asset, Steps);
+					const bool bElementExists = Address != nullptr;
+					if (bElementExists) Property->CopyCompleteValue(Address, NewValue.Get());
+					const UObject* EditedObjects[] = {Asset};
+					FPropertyChangedEvent Event(Steps.Last().Field, EPropertyChangeType::ValueSet, EditedObjects);
+					Event.ObjectIteratorIndex = 0;
+					Event.SetArrayIndexPerObject(MakeArrayView(&ArrayIndices, 1));
 					Event.SetActiveMemberProperty(Chain.GetHead()->GetValue());
 					FPropertyChangedChainEvent Change(Chain, Event);
 					Asset->PostEditChangeChainProperty(Change);
+					Address = ResolveFieldAddress(Asset, Steps);
+					if (!bElementExists || !Address)
+					{
+						BuildErrorResponse(OutResponse, TEXT("Editor callback removed the selected element. Inspect the asset or use Undo"), TEXT("PROPERTY_CHANGED"));
+						return;
+					}
 				}
 				Result->SetField(TEXT("previous_value"), Previous);
 			}

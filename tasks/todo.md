@@ -183,7 +183,8 @@ Mark a unit complete after its acceptance review records the supported scope.
   - [x] Change the fixture threshold to 0.25, preserve seed 17 and verify Undo, Redo and save/reopen on UE 5.8.4.
   - [x] Verify the scalar workflow on UE 5.9 Preview 2, including creation and fresh-process readback.
   - [x] Edit a whole FVector in one transaction on UE 5.8.4 and 5.9 Preview 2.
-  - [ ] Review and test indexed arrays and typed references individually.
+  - [x] Edit an existing array element on both engines and verify sibling values, invalid indices, Undo/Redo and save/reopen.
+  - [ ] Review and test typed hard asset references.
 - [x] [Open an editor map](../docs/plans/editor-workflow-gaps.md#3-open-an-editor-map) on UE 5.8.4 and 5.9 Preview 2, including unsaved-change recovery.
 - [ ] [Run an evaluation headlessly](../docs/plans/editor-workflow-gaps.md#4-run-an-evaluation-headlessly).
 - [ ] [Manage long-running evaluation and training jobs](../docs/plans/editor-workflow-gaps.md#5-manage-long-running-evaluation-and-training-jobs).
