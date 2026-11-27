@@ -33,7 +33,7 @@ projects. Historical rationale is retained in the [September notes preserved at 
   Blueprint and preserve an unrelated redo on all three engines. Five fresh UE
   5.3.2 content-only editors passed the original nine-case suite with the same
   project-built DLL.
-- **Investigate the intermittent UE 5.3.2 fixture GC crash.** During integration
+- [ ] **Investigate the intermittent UE 5.3.2 fixture GC crash.** During integration
   one 38-case run crashed in a CoreUObject worker while the game thread tore
   down the AssignmentExecFrom fixture. Three subsequent full runs passed with
   the same binaries. The earlier packaged crash occurred during PawnGraphGuidWiring.
@@ -49,7 +49,10 @@ projects. Historical rationale is retained in the [September notes preserved at 
 | QA-3 | Open qualification | Desktop client/editor UI acceptance remains separate from the completed terminal-client and transport-isolation proof. Shared-directory concurrent asset edits are not made safe by port isolation. See [session isolation](../project-session-isolation.md). |
 | QA-4 | Reproduced agent discovery friction | With an owned UE 5.3.2 editor running, Codex CLI 0.171.0 stopped after inspecting the saved Blueprint when only offline tools were enabled. With one hint about live tool discovery it authored, compiled and saved the requested node. Qualify recovery from this starting point without a hint, including editor identity verification and fresh-editor readback. Track whether the client actually sends a malformed input before claiming error recovery. |
 | EN-32 | Deferred capability | Extend scalar material functions with typed vector/texture inputs and nodes, more math, function instances, layer/blend functions and safe interface edits. Choose one workflow-driven slice with its own host oracle, Undo and persistence gate. |
-| OPS-1 | Pending explicit target selection | Select intended consumer targets and deploy an explicitly verified source revision, with deployment verification and editor/client restart. PR #62 and PR #64 verification used disposable owned hosts; a version label alone does not identify the tested source. |
+| OPS-3 | Publication blocked at `529b5e3` on 2026-11-27 | The local pre-push check reported three configured targets as `NEEDS-SYNC`. Confirm which targets still need this release, sync and rebuild the intended ones, then rerun deployment verification and the pre-push check. Close when `origin/main` contains the verified revision. |
+| OPS-1 | UE 5.9 Preview 2 consumer project pending selection and verification | On the selected project, verify the deployed revision, restart the editor and the user's normal MCP client, and confirm the attached project and engine build. Inspect an existing saved asset and compare the answer with Unreal. Run a representative registered job and recover its result by ID in a fresh client session. [Owned-host results](../plans/workload-and-inspection-qualification.md) |
+
+For the November 27 release, resolve OPS-3 first, verify the UE 5.9 consumer workflow under OPS-1, then investigate the UE 5.3.2 fixture crash above.
 
 PR #62's graph edits/connections have verified Undo/Redo and save/restart
 persistence. Function asset allocation is explicitly not undoable, propagation
@@ -145,6 +148,8 @@ establish that an item is still open.
 
 | ID | Remaining work | Trigger |
 |---|---|---|
+| QA-5 | Qualify registered workloads and direct package inspection on Win64 UE 5.7. Build the plugin on an owned 5.7 host, run the workloads, then compare reads of 5.7-authored RigVM and Chooser assets with Unreal. Record supported layouts and explicit refusals. | A supported project needs 5.7 coverage. The November 27 run had no 5.7 installation. [Engine matrix](../plans/workload-and-inspection-qualification.md#results-by-engine) |
+| EN-33 | Extend headless jobs to a ticking game world or rendered output. Exercise the required mode through a registered workload and verify the resulting world state or rendered frame after reconnecting. | A real job needs behavior beyond the current commandlet, CPU training or fixed-step physics modes. [Workload contract](../specs/evaluation-jobs.md) |
 | EN-1 | Asset-registry min/max size filtering | Asset-size audit workflow. |
 | EN-3 | Compare agent configuration/tool coverage between projects | Recurring infrastructure drift. |
 | EN-5 | Automated YAML parameter declarations versus handler reads | Next schema-drift recurrence or focused maintenance slice. |
@@ -159,6 +164,8 @@ establish that an item is still open.
 | EN-22 | Supplemental editor event push over WebSocket | Measured cache/readiness/progress need; no transport rewrite scheduled. |
 | DR-1 | Offline pin tracing beyond the current supported reader | Workflow pressure with a reliable sidecar/native oracle. |
 | DR-2 | Full-fidelity graph-byte parsing | Architectural change; otherwise explicitly deferred, with editor/sidecar paths preferred. |
+| DR-2a | Extend direct package inspection to additional RigVM layouts, including the rejected 5.3 and 5.6 layouts, or to additional Chooser columns, results, nested Choosers and native struct types. For the requested type, compare a saved fixture's graph, values or selection with Unreal. | A real asset needs a field the reader cannot return. [Qualified layouts](../plans/workload-and-inspection-qualification.md#caller-type-and-source-coverage) |
+| DR-3 | Qualify inspection of cooker-produced packages, including stripped, split or unversioned data and IoStore containers. For the required format, compare fields retained by the cooker with the reader's output and identify any unavailable editor data. | A workflow needs inspection of a cooked artifact. Existing rejection tests use controlled changes to editor packages. [Package coverage](../plans/workload-and-inspection-qualification.md#caller-type-and-source-coverage) |
 | Legacy follow-on proposals | Reassess FExpressionInput/FieldPath parsing, int64 VFX report, broad refactor and full 3F scope | Reproduce/define the remaining gap first. A narrow sidecar writer and save hook already exist. |
 
 ## Completed items removed from the active queue
