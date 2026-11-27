@@ -3,7 +3,8 @@
 // Run: cd server && node test-project-hygiene.mjs
 
 import { spawnSync } from 'node:child_process';
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { canonicalJson, sha256Bytes, sha256Canonical } from './deployment/canonical-json.mjs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -26,6 +27,8 @@ t.assert(/^\s+persist-credentials: false$/m.test(rotationWorkflow),
   'rotation checkout does not persist repository credentials');
 t.assert(/^\s+timeout-minutes: 30$/m.test(rotationWorkflow),
   'rotation job has a bounded ceiling above its reviewed per-file budgets');
+
+const hooksConfig = 'core.hooksPath=' + join(repoRoot, '.githooks');
 
 function makeTempRoot() {
   return mkdtempSync(join(tmpdir(), 'uemcp-project-hygiene-'));
@@ -193,16 +196,9 @@ function runGit(cwd, args) {
     runGit(testRepo, ['commit', '-m', 'Clean branch commit']);
     runGit(testRepo, ['push', 'origin', 'HEAD:refs/heads/range-check']);
 
-    mkdirSync(join(testRepo, '.githooks'), { recursive: true });
-    writeFileSync(
-      join(testRepo, '.githooks', 'pre-push'),
-      readFileSync(join(repoRoot, '.githooks', 'pre-push'), 'utf8'),
-      'utf8'
-    );
-    chmodSync(join(testRepo, '.githooks', 'pre-push'), 0o755);
     writeFileSync(join(testRepo, '.git', 'info', 'forbidden-tokens'), `# CRLF token file\r\n\r\n${token}\r\n`, 'utf8');
 
-    const hookConfig = ['-c', 'core.hooksPath=.githooks'];
+    const hookConfig = ['-c', hooksConfig];
     const cleanResult = runProcess('git', [
       ...hookConfig,
       'push',
@@ -266,20 +262,103 @@ function runGit(cwd, args) {
   const root = makeTempRoot();
   try {
     runGit(root, ['init']);
-    mkdirSync(join(root, '.githooks'));
-    writeFileSync(join(root, '.githooks', 'pre-commit'), readFileSync(join(repoRoot, '.githooks', 'pre-commit')));
-    chmodSync(join(root, '.githooks', 'pre-commit'), 0o755);
     const token = 'ZXQGateToken7';
     writeFileSync(join(root, '.git', 'info', 'forbidden-tokens'), `# Windows line endings\r\n\r\n${token}\r\n`);
     writeFileSync(join(root, 'clean.txt'), 'ordinary text\n');
     runGit(root, ['add', 'clean.txt']);
-    const args = ['-c', 'core.hooksPath=.githooks', '-c', 'user.name=Hygiene Test', '-c', 'user.email=test@example.invalid', 'commit', '-m', 'Test'];
+    const args = ['-c', hooksConfig, '-c', 'user.name=Hygiene Test', '-c', 'user.email=test@example.invalid', 'commit', '-m', 'Test'];
     const clean = runProcess('git', args, { cwd: root });
     t.assert(clean.status === 0, 'CRLF token file permits clean commits', clean.stderr);
     writeFileSync(join(root, 'private.txt'), `${token}\n`);
     runGit(root, ['add', 'private.txt']);
     const blocked = runProcess('git', args, { cwd: root });
     t.assert(blocked.status !== 0 && /Commit blocked/.test(blocked.stderr), 'CRLF token file still blocks protected names', blocked.stderr);
+  } finally { cleanup(root); }
+}
+
+{
+  const root = makeTempRoot();
+  try {
+    const repo = join(root, 'work');
+    const remote = join(root, 'public.git');
+    const token = 'ZXQPrivateLabel';
+    runGit(root, ['init', '--bare', remote]);
+    runGit(root, ['init', '-b', 'main', repo]);
+    runGit(repo, ['config', 'user.name', 'Hook Test']);
+    runGit(repo, ['config', 'user.email', 'hook@example.invalid']);
+    runGit(repo, ['remote', 'add', 'origin', remote]);
+    mkdirSync(join(repo, 'dist'));
+    mkdirSync(join(repo, 'server'));
+    const path = 'dist/deploy-uemcp.manifest.json';
+    const lock = 'server/package-lock.json';
+    const entry = 'dist/deploy-uemcp.mjs';
+    const notices = 'dist/THIRD_PARTY_NOTICES.txt';
+    for (const file of [lock, entry, notices]) writeFileSync(join(repo, file), 'one\n');
+    const digest = sha256Bytes('one\n');
+    const nextDigest = sha256Bytes('two\n');
+    const doc = {
+      schema_version: '1.0', entry, esbuild_version: '0.28.1', node_minimum: '22.0.0',
+      source_inputs: [{ path: 'server/' + token + '.mjs', sha256: digest }],
+      package_lock_sha256: digest, bundle_sha256: digest, notices_sha256: digest,
+      bundled_packages: [{ name: 'example', license: 'MIT', version: '1.0' }],
+    };
+    writeFileSync(join(repo, doc.source_inputs[0].path), 'one\n');
+    const writeManifest = () => {
+      const { source_inputs, package_lock_sha256, bundled_packages, notices_sha256 } = doc;
+      doc.input_manifest_sha256 = sha256Canonical({ source_inputs, package_lock_sha256, bundled_packages, notices_sha256 });
+      writeFileSync(join(repo, path), canonicalJson(doc) + '\n');
+    };
+    const commit = (...args) => runProcess('git', ['-c', hooksConfig, 'commit', ...args], { cwd: repo });
+    const push = () => runProcess('git', ['-c', hooksConfig, 'push', 'origin', 'main'], { cwd: repo });
+    writeManifest();
+    runGit(repo, ['add', '.']);
+    runGit(repo, ['commit', '-m', 'Public baseline']);
+    runGit(repo, ['push', 'origin', 'main']);
+    writeFileSync(join(repo, '.git/info/forbidden-tokens'), [token, nextDigest.slice(0, 7), 'regex:ZZQ[0-9]+', ''].join('\n'));
+    writeFileSync(join(repo, lock), 'two\n');
+    doc.package_lock_sha256 = nextDigest;
+    writeManifest();
+    runGit(repo, ['add', lock, path]);
+    writeFileSync(join(repo, lock), 'uncommitted bytes\n');
+    const refreshed = commit('-m', 'Update dependency checksums');
+    t.assert(refreshed.status === 0, 'checksum refresh uses the index and permits the existing public path', refreshed.stderr);
+    const sent = push();
+    t.assert(sent.status === 0 && runGit(remote, ['rev-parse', 'main']) === runGit(repo, ['rev-parse', 'HEAD']),
+      'a real push of the checksum refresh reaches the bare destination', sent.stderr);
+
+    doc.bundled_packages[0].name = token;
+    writeManifest();
+    runGit(repo, ['add', path]);
+    const named = commit('-m', 'Edit package metadata');
+    t.assert(named.status === 1 && /Commit blocked/.test(named.stderr), 'a newly protected package name is blocked');
+    doc.bundled_packages[0].name = 'example';
+    doc.package_lock_sha256 = nextDigest.slice(0, 7) + '0'.repeat(57);
+    writeManifest();
+    runGit(repo, ['add', path]);
+    const mismatched = commit('-m', 'Change digest');
+    t.assert(mismatched.status === 1 && /Commit blocked/.test(mismatched.stderr), 'an unverified digest receives the full text scan');
+
+    runGit(repo, ['reset', '--quiet', 'HEAD', '--', path, lock]);
+    runGit(repo, ['restore', path, lock]);
+    writeFileSync(join(repo, token + '.txt'), 'plain\n');
+    runGit(repo, ['add', token + '.txt']);
+    const filename = commit('-m', 'Add file');
+    t.assert(filename.status === 1 && /Commit blocked/.test(filename.stderr), 'a protected filename blocks a clean body');
+    runGit(repo, ['rm', '-f', token + '.txt']);
+    runGit(repo, ['checkout', '-b', 'integration-check']);
+    runGit(repo, ['commit', '--allow-empty', '-m', 'Side branch']);
+    runGit(repo, ['checkout', 'main']);
+    runGit(repo, ['merge', '--no-ff', '--no-commit', 'integration-check']);
+    writeFileSync(join(repo, 'integration.txt'), token + '\n');
+    runGit(repo, ['add', 'integration.txt']);
+    runGit(repo, ['commit', '-m', 'Integration edit']);
+    const merged = push();
+    t.assert(merged.status === 1 && /Push blocked/.test(merged.stderr), 'the push checks content first introduced by a merge');
+    runGit(repo, ['checkout', '-B', 'main', 'origin/main']);
+    runGit(repo, ['commit', '--allow-empty', '-m', 'ZZQ123']);
+    runGit(repo, ['commit', '--allow-empty', '-m', 'Clean tip']);
+    const message = push();
+    t.assert(message.status === 1 && /Push blocked/.test(message.stderr), 'an intermediate commit message matching a regex blocks publication');
   } finally { cleanup(root); }
 }
 

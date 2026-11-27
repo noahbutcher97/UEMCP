@@ -99,8 +99,11 @@ if [[ ! -s "$literals" && ! -s "$regexes" ]]; then
   exit 0
 fi
 
-content="$(git diff --cached --no-color 2>/dev/null)"
-[[ -z "$content" ]] && exit 0
+if command -v node >/dev/null 2>&1; then
+  content="$(node "$(dirname "$0")/../server/nda-scan-input.mjs" index)" || exit 1
+else
+  content="$(git diff --cached --no-color)" || exit 1
+fi
 
 hits=""
 if [[ -s "$literals" ]]; then

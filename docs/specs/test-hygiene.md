@@ -24,6 +24,18 @@ and pushes to pass and protected names to remain blocked. This does not remove
 existing manually configured protection entries or automatically repair older
 pollution; inspect and correct historical local entries separately.
 
+The commit hook reads the Git index. The push hook checks each outgoing
+commit, including its message and any edits made during a merge. Both check
+added text and new paths, including rename destinations. Removed text and
+unchanged context often refer to material already present on the destination.
+
+For the generated deployment manifest, both hooks compare package and source
+records. They check a changed checksum against the corresponding Git blob or
+the manifest's calculated aggregate. New names and paths go through the normal
+literal and regular-expression rules. A malformed manifest or a checksum the
+hook cannot verify receives the ordinary text scan. Without Node, the hooks
+use the more conservative Git patch scan.
+
 Run from `server/`:
 
 ```text
