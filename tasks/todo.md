@@ -193,6 +193,24 @@ Mark a unit complete after its acceptance review records the supported scope.
 - [x] [Inspect Chooser rows and results](../docs/plans/editor-workflow-gaps.md#8-inspect-chooser-rows-and-results) under U4.
 - [x] [Complete normal workflows with Python disabled](../docs/plans/editor-workflow-gaps.md#9-complete-normal-workflows-with-python-disabled).
 
+## Extensible headless workloads and direct package inspection
+
+Follow the [implementation plan and dependency table](../docs/plans/workloads-and-package-inspection.md#order-and-ownership).
+Check a unit only after its acceptance run, independent review, fix round and
+reviewer replay are recorded against the final revision.
+
+- [ ] [10. Establish the caller and fixture inventory](../docs/plans/workloads-and-package-inspection.md#10-establish-the-caller-and-fixture-inventory)
+- [ ] [11. Define a versioned workload and register spacing and PPO](../docs/plans/workloads-and-package-inspection.md#11-define-a-versioned-workload-and-register-spacing-and-ppo)
+- [ ] [12. Route durable execution and recovery through the registration](../docs/plans/workloads-and-package-inspection.md#12-route-durable-execution-and-recovery-through-the-registration)
+- [ ] [13. Make workloads discoverable and executable through MCP and CLI](../docs/plans/workloads-and-package-inspection.md#13-make-workloads-discoverable-and-executable-through-mcp-and-cli)
+- [ ] [14. Prove extensibility with a physics evaluation](../docs/plans/workloads-and-package-inspection.md#14-prove-extensibility-with-a-physics-evaluation)
+- [ ] [15. Decode native export payloads in the shared reader](../docs/plans/workloads-and-package-inspection.md#15-decode-native-export-payloads-in-the-shared-reader)
+- [ ] [16. Decode typed instanced structs and containers](../docs/plans/workloads-and-package-inspection.md#16-decode-typed-instanced-structs-and-containers)
+- [ ] [17. Reconstruct RigVM graphs with no prior export](../docs/plans/workloads-and-package-inspection.md#17-reconstruct-rigvm-graphs-with-no-prior-export)
+- [ ] [18. Reconstruct Chooser rows with no prior export](../docs/plans/workloads-and-package-inspection.md#18-reconstruct-chooser-rows-with-no-prior-export)
+- [ ] [19. Connect direct, live and snapshot reads across callers](../docs/plans/workloads-and-package-inspection.md#19-connect-direct-live-and-snapshot-reads-across-callers)
+- [ ] [20. Qualify the whole caller matrix and close the work](../docs/plans/workloads-and-package-inspection.md#20-qualify-the-whole-caller-matrix-and-close-the-work)
+
 ## Checkpoint for every selected slice
 
 - [ ] Bound the implementation handoff, exact verification commands and resources.

@@ -150,3 +150,5 @@ Use this prompt from the owned project's root in a fresh provider client with de
 1. After Units 1–3, stop the prompt after opening the map. A separate observer checks the reopened config, unchanged sibling fields, active world and map-specific actor. Repeat with a misspelled property and with unsaved map edits.
 2. After Units 4–5, continue through evaluation. Interrupt the client after submission and retry. Match the single worker execution and result to the saved config digest, map identity, seed and independently measured outcome.
 3. At final review, record Unit 9's tool trace and publish the exact engine, client and execution-mode matrix for the accepted slices. Units 6–8 retain their own physics, graph and row-selection evidence. Update the owning capability contracts, tool definitions, discovery guidance and backlog as each operation ships.
+
+Continue with [Units 10–20 for extensible workloads and direct package inspection](workloads-and-package-inspection.md). The [implementation checklist](../../tasks/todo.md#extensible-headless-workloads-and-direct-package-inspection) tracks each independent review and fix round.

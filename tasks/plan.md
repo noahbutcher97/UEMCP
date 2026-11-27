@@ -141,6 +141,12 @@ configuration authoring, map selection, headless evaluation, jobs, physics and
 asset inspection. It defines separate implementation and review checkpoints for
 each workflow and links DataAsset and Chooser work to U8 and U4.
 
+The [workloads and package inspection implementation plan](../docs/plans/workloads-and-package-inspection.md)
+continues that sequence with Units 10–20. It covers workload registration and
+execution, shared decoding of custom exports and instanced structs, and direct
+saved-package reads for RigVM and Chooser. Use the [unit checklist](todo.md#extensible-headless-workloads-and-direct-package-inspection)
+to track independent review, fixes and verification for each unit.
+
 | Unit | Outcome and backlog coverage | First independently useful slice | Completion evidence for that slice |
 |---|---|---|---|
 | U1 — Trustworthy command contracts | Users can trust validation and result fields. BUG-3; EN-8 P1; EN-5. | Correct timer compile/ghost-link failure reporting. Separately reproduce unknown-parameter handling, then add schema checks where they prevent that defect class. | A failing compile/link cannot report success; negative tests exercise actual failures. Unknown parameters fail before action when that slice is taken. |
