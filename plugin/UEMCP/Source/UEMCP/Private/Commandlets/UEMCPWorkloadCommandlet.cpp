@@ -132,7 +132,25 @@ bool UUEMCPJointResponse::Evaluate(const FJsonObject& Inputs, FJsonObject& Outpu
 	if (!Physics) { Error = TEXT("Physics scene unavailable"); return false; }
 	constexpr float Dt = 1.f / 120.f;
 	const FVector Gravity = FVector::ZeroVector;
-	const double Initial = FMath::RadiansToDegrees(Constraint->GetCurrentTwist());
+#if ENGINE_MAJOR_VERSION == 5 && ENGINE_MINOR_VERSION < 6
+	// Older Chaos returns the parent connector's local Euler angle from GetCurrentTwist.
+	// Compose the live body and connector rotations in world space before measuring twist.
+	auto* Parent = Component->GetBodyInstance(Constraint->ConstraintBone2);
+	if (!Parent) { Error = TEXT("Joint has no parent body"); return false; }
+	const auto TwistDegrees = [&]() {
+		const auto& Handle = Constraint->ConstraintHandle;
+		const FQuat ChildFrame = Body->GetUnrealWorldTransform(false, true).GetRotation()
+			* FPhysicsInterface::GetLocalPose(Handle, EConstraintFrame::Frame1).GetRotation();
+		const FQuat ParentFrame = Parent->GetUnrealWorldTransform(false, true).GetRotation()
+			* FPhysicsInterface::GetLocalPose(Handle, EConstraintFrame::Frame2).GetRotation();
+		const FQuat Relative = ParentFrame.Inverse() * ChildFrame;
+		return FMath::RadiansToDegrees(Relative.GetTwistAngle(FVector::ForwardVector));
+	};
+#else
+	const auto TwistDegrees = [&]() { return FMath::RadiansToDegrees(Constraint->GetCurrentTwist()); };
+#endif
+	const double Initial = TwistDegrees();
+	double Final = Initial;
 	double Peak = FMath::Abs(Initial);
 	for (int32 Step = 0; Step < Steps; ++Step)
 	{
@@ -141,7 +159,8 @@ bool UUEMCPJointResponse::Evaluate(const FJsonObject& Inputs, FJsonObject& Outpu
 		Physics->StartFrame();
 		Physics->WaitPhysScenes();
 		Physics->EndFrame();
-		Peak = FMath::Max(Peak, static_cast<double>(FMath::Abs(FMath::RadiansToDegrees(Constraint->GetCurrentTwist()))));
+		Final = TwistDegrees();
+		Peak = FMath::Max(Peak, FMath::Abs(Final));
 	}
 	Output.SetStringField(TEXT("asset"), Package);
 	Output.SetStringField(TEXT("joint"), JointName);
@@ -151,6 +170,6 @@ bool UUEMCPJointResponse::Evaluate(const FJsonObject& Inputs, FJsonObject& Outpu
 	Output.SetNumberField(TEXT("step_seconds"), Dt);
 	Output.SetNumberField(TEXT("initial_degrees"), Initial);
 	Output.SetNumberField(TEXT("peak_degrees"), Peak);
-	Output.SetNumberField(TEXT("final_degrees"), FMath::RadiansToDegrees(Constraint->GetCurrentTwist()));
+	Output.SetNumberField(TEXT("final_degrees"), Final);
 	return true;
 }

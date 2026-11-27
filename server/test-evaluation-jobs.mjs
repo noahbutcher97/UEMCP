@@ -38,6 +38,13 @@ try {
   const install = (...workloads) => writeFileSync(manifest, JSON.stringify({ schema_version: 1, workloads }));
   install(spec);
   const catalog = loadWorkloads(project);
+  const physics = catalog.get('physics_joint_response');
+  const reading = { asset: '/Game/PA_Joint', joint: 'ExistingHinge', steps: 180, units: 'degrees',
+    mode: 'fixed_step_chaos_scene', initial_degrees: 0, peak_degrees: 55, final_degrees: -55, step_seconds: 1 / 120 };
+  t.assert(physics.checkResult(reading), 'signed joint response and absolute peak in degrees are accepted');
+  const legacyTwist = { ...reading, initial_degrees: -5156.595703125, peak_degrees: 5156.595703125, final_degrees: -5156.595703125 };
+  await t.assertRejects(() => executeRegistered({ ...physics, execute: () => legacyTwist }, {}, { checkCancellation() {} }),
+    /result does not match/, 'a stale engine connector cannot publish the impossible twist reproduced on UE 5.3');
   t.assert(catalog.has(spec.kind) && !loadWorkloads(adjacent).has(spec.kind), 'discovery binds installed providers to the exact project');
   const custom = { request_id: 'extension', kind: spec.kind, inputs: { length: 2 } };
   t.assert(workloadRequest(custom, catalog).inputs.label === 'probe', 'a registered workload accepts its own shape and applies declared defaults');

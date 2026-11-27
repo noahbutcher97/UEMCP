@@ -166,11 +166,23 @@ FString UPhysicsAssetProbe::Observe(UPhysicsAsset* Asset, FName SimulateJoint)
 		if (!B->IsInstanceSimulatingPhysics()) return TEXT("child did not simulate");
 		const FTransform JointWorld = J->GetRefFrame(EConstraintFrame::Frame1) * B->GetUnrealWorldTransform();
 		const FVector Axis = JointWorld.GetUnitAxis(EAxis::X);
-		const float Initial = FMath::RadiansToDegrees(J->GetCurrentTwist());
+		FBodyInstance* Parent = Component->GetBodyInstance(J->ConstraintBone2);
+		if (!Parent) return TEXT("missing parent body");
+		// This fixture has both swing axes locked. Measure the angle swept by the child
+		// frame's Y marker about the pinned parent's X axis, independently of Chaos's twist getter.
+		const FTransform ParentWorld = J->GetRefFrame(EConstraintFrame::Frame2) * Parent->GetUnrealWorldTransform();
+		const FVector ParentY = ParentWorld.GetUnitAxis(EAxis::Y);
+		const FVector ParentZ = ParentWorld.GetUnitAxis(EAxis::Z);
+		const auto MarkerDegrees = [&]() {
+			const FTransform ChildWorld = J->GetRefFrame(EConstraintFrame::Frame1) * B->GetUnrealWorldTransform();
+			const FVector Marker = ChildWorld.GetUnitAxis(EAxis::Y);
+			return FMath::RadiansToDegrees(FMath::Atan2(FVector::DotProduct(Marker, ParentZ), FVector::DotProduct(Marker, ParentY)));
+		};
+		const double Initial = MarkerDegrees();
 		FPhysScene* Physics = Scene.GetWorld()->GetPhysicsScene();
 		const FVector Gravity = FVector::ZeroVector;
 		constexpr float StepSeconds = 1.f / 120.f;
-		float Peak = 0;
+		double Peak = FMath::Abs(Initial);
 		for (int32 Step = 0; Step < 180; ++Step)
 		{
 			B->SetAngularVelocityInRadians(Axis * 2.0, false);
@@ -179,12 +191,12 @@ FString UPhysicsAssetProbe::Observe(UPhysicsAsset* Asset, FName SimulateJoint)
 			Physics->StartFrame();
 			Physics->WaitPhysScenes();
 			Physics->EndFrame();
-			Peak = FMath::Max(Peak, FMath::Abs(FMath::RadiansToDegrees(J->GetCurrentTwist())));
+			Peak = FMath::Max(Peak, FMath::Abs(MarkerDegrees()));
 		}
 		Result->SetNumberField(TEXT("steps"), 180);
 		Result->SetNumberField(TEXT("initial_degrees"), Initial);
 		Result->SetNumberField(TEXT("peak_degrees"), Peak);
-		Result->SetNumberField(TEXT("final_degrees"), FMath::RadiansToDegrees(J->GetCurrentTwist()));
+		Result->SetNumberField(TEXT("final_degrees"), MarkerDegrees());
 	}
 	return PhysicsAssetProbe::Serialize(Result);
 #else

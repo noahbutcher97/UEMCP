@@ -13,6 +13,7 @@ const createValidators = () => ({
 const validators = createValidators();
 const packageName = { type: 'string', maxLength: 512, pattern: '^/Game/(?:[A-Za-z0-9_]+/)*[A-Za-z0-9_]+$' };
 const integer = (minimum, maximum) => ({ type: 'integer', minimum, maximum });
+const signedTwistDegrees = { type: 'number', minimum: -180, maximum: 180 };
 const object = (properties, required = Object.keys(properties), additionalProperties = false) =>
   ({ type: 'object', properties, required, additionalProperties });
 const spacingFields = { config: packageName, map: packageName, seed: integer(0, 2147483647) };
@@ -54,8 +55,8 @@ const builtins = [
     handler: '/Script/UEMCP.UEMCPJointResponse',
     input_schema: object({ asset: packageName, joint: { type: 'string', minLength: 1, maxLength: 256 }, steps: { ...integer(1, 3600), default: 180 } }, ['asset', 'joint']),
     result_schema: object({ asset: packageName, joint: { type: 'string' }, steps: integer(1, 3600), units: { const: 'degrees' },
-      mode: { const: 'fixed_step_chaos_scene' }, initial_degrees: { type: 'number' }, peak_degrees: { type: 'number' },
-      final_degrees: { type: 'number' }, step_seconds: { type: 'number', exclusiveMinimum: 0 } }),
+      mode: { const: 'fixed_step_chaos_scene' }, initial_degrees: signedTwistDegrees, peak_degrees: { type: 'number', minimum: 0, maximum: 180 },
+      final_degrees: signedTwistDegrees, step_seconds: { type: 'number', exclusiveMinimum: 0 } }),
     package_inputs: { asset: '.uasset' },
   },
 ];
