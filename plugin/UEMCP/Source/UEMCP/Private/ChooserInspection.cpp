@@ -167,6 +167,7 @@ namespace UEMCP::ChooserInspection
 			return;
 		}
 		const FString ObjPath = Path + TEXT(".") + FPackageName::GetLongPackageAssetName(Path);
+		// uemcp-allow-class-resolution: probe the already-loaded optional Chooser class without loading its module.
 		UClass* ChooserClass = FindObject<UClass>(nullptr, TEXT("/Script/Chooser.ChooserTable"));
 		if (!ChooserClass)
 		{
