@@ -203,7 +203,8 @@ export function topToolNames(index, query, maxResults = 5) {
 }
 
 export function isMutationRequirementKind(requirement) {
-  return requirement === 'live_mutation' ||
+  return requirement === 'project_job_mutation' ||
+    requirement === 'live_mutation' ||
     requirement === 'rc_mutation' ||
     requirement === 'python_exec';
 }
@@ -242,8 +243,9 @@ export function collectRequirementMetadataMismatches(toolsData, getToolRequireme
 
     if (toolsetName === 'offline') {
       const requirement = getToolRequirement(toolName, toolsetName, def);
-      if (requirement !== 'offline_read') {
-        mismatches.push(`${toolsetName}.${toolName}: expected offline_read, got ${requirement}`);
+      const expected = def.mutates_job === true ? 'project_job_mutation' : 'offline_read';
+      if (requirement !== expected) {
+        mismatches.push(`${toolsetName}.${toolName}: expected ${expected}, got ${requirement}`);
       }
       continue;
     }

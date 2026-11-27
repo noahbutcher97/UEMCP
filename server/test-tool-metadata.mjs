@@ -706,8 +706,8 @@ try {
   // was not part of the prior 144). 152 = 149 + 3: D202 added describe_tool,
   // call_tool and call_mutating_tool to management.
   t.assert(
-    listedRows.length === 172,
-    'independent all-enabled tools/list inventory contains 172 registered tools',
+    listedRows.length === 184,
+    'independent all-enabled tools/list inventory contains 184 registered tools',
     `listed=${listedRows.length}`,
   );
 

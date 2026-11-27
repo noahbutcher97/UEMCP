@@ -46,6 +46,9 @@ assertRequirement('remote-control', 'rc_set_property', TOOL_REQUIREMENT_KINDS.RC
 assertRequirement('remote-control', 'rc_batch', TOOL_REQUIREMENT_KINDS.RC_MUTATION);
 assertRequirement('editor-utility', 'run_python_command', TOOL_REQUIREMENT_KINDS.PYTHON_EXEC);
 assertRequirement('editor-utility', 'delete_asset_safe', TOOL_REQUIREMENT_KINDS.LIVE_MUTATION);
+for (const name of ['start_evaluation_job', 'get_evaluation_job', 'get_evaluation_result', 'cancel_evaluation_job']) {
+  assertRequirement('offline', name, TOOL_REQUIREMENT_KINDS.PROJECT_JOB_MUTATION);
+}
 assertRequirement('animation', 'get_anim_graph', TOOL_REQUIREMENT_KINDS.LIVE_READ);
 
 const animGraphDef = toolDef('animation', 'get_anim_graph');

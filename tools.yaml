@@ -104,9 +104,10 @@ toolsets:
   offline:
     layer: offline
     priority: null   # built into Phase 1
-    description: Project file analysis — always works, no editor needed
+    description: Project file analysis and saved evaluation jobs. No interactive editor required.
     tools:
       start_evaluation_job:
+        mutates_job: true
         description: "Start or resume a project-bound job on a saved config and map. Returns a durable job ID immediately. Use player_start_spacing for a headless evaluation of player-start clearance, or train_spacing_policy for bounded PPO. Reuse the same request_id and inputs after a disconnect."
         aliases: ["headless evaluation", "run seeded evaluation", "start training"]
         params:
@@ -117,14 +118,17 @@ toolsets:
           kind: { type: string, required: false, description: "player_start_spacing (default) or train_spacing_policy." }
           steps: { type: integer, required: false, description: "Training only. 32–8192 contextual-bandit steps." }
       get_evaluation_job:
-        description: "Poll a durable evaluation or PPO training job after reconnecting to the same project. Reports progress, partial artifacts and terminal state."
+        mutates_job: true
+        description: "Poll a durable evaluation or PPO training job after reconnecting to the same project. A poll resumes queued work and reconciles interrupted workers. Reports progress, partial artifacts and terminal state."
         params:
           job_id: { type: string, required: true }
       get_evaluation_result:
-        description: "Read the terminal result of a project evaluation, including saved input digests, per-start clearances and the trained policy for a training job."
+        mutates_job: true
+        description: "Retrieve a project evaluation result, including saved input digests, per-start clearances and the trained policy for a training job. Before completion this lookup may resume queued work or reconcile an interrupted worker."
         params:
           job_id: { type: string, required: true }
       cancel_evaluation_job:
+        mutates_job: true
         description: "Cancel a queued or running project evaluation or training job. Poll until cancellation completes."
         params:
           job_id: { type: string, required: true }
@@ -1337,13 +1341,19 @@ toolsets:
         description: AnimSequence metadata — duration, frame count, rate, skeleton, notify tracks, curves, sync markers.
         params:
           asset_path: { type: string, required: true }
-      # full_tcp: loads UAnimBlueprint asset instance; returns static AnimGraph topology.
-      # offline_pair: bp_list_graphs remains useful for top-level graph presence without editor.
       get_rigvm_graph:
         status: shipped
+        availability_layer: tcp-55558
         transport_layer: tcp-55558
         requires_editor: true
+        requires_pie: false
         mutates_asset: false
+        mutates_level: false
+        saves_asset: false
+        compiles_asset: false
+        offline_fallback: read_saved_asset_inspection
+        offline_fallback_scope: partial
+        offline_fallback_note: "Requires a prior export of the same saved bytes. Unsaved graph edits require the live editor."
         aliases: ["Control Rig pins and links", "RigVM graph topology"]
         description: Inspect live RigVM models including nested graphs and local function libraries. Read each model node, pin direction and default, and directed link endpoints. Call export_asset_inspection for saved readback.
         params:
@@ -1351,14 +1361,22 @@ toolsets:
           max_pins: { type: integer, required: false, description: "Reject models that exceed this pin count (default 4096)." }
       export_asset_inspection:
         status: shipped
+        availability_layer: tcp-55558
         transport_layer: tcp-55558
         requires_editor: true
+        requires_pie: false
         mutates_asset: false
+        mutates_level: false
+        saves_asset: false
+        compiles_asset: false
+        offline_fallback: false
         aliases: ["export RigVM graph", "export Chooser rows"]
         description: Export an inspection for engine-free readback in the attached project's Saved directory. Requires a clean RigVM or Chooser package with a verified engine save hash. Then use read_saved_asset_inspection.
         params:
           asset_path: { type: string, required: true }
           kind: { type: string, enum: [rigvm, chooser], required: true }
+      # full_tcp: loads UAnimBlueprint asset instance; returns static AnimGraph topology.
+      # offline_pair: bp_list_graphs remains useful for top-level graph presence without editor.
       get_anim_graph:
         initially_visible: true
         status: shipped
