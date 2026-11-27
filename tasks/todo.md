@@ -173,6 +173,23 @@ fixture recovery and a universal graph framework are not prerequisites.
   on UE 5.3.2, 5.6.1 and 5.8.4. Additional rule expressions and masked montage
   playback remain open.
 
+## Editor workflow gaps
+
+Proposed units from the [implementation and acceptance plan](../docs/plans/editor-workflow-gaps.md).
+Mark a unit complete after its acceptance review records the supported scope.
+
+- [x] [Create a DataAsset](../docs/plans/editor-workflow-gaps.md#1-create-a-dataasset) under U8/EN-30. Creation, explicit save, collision recovery and fresh-editor readback verified on Win64 UE 5.8.4.
+- [ ] [Edit nested DataAsset properties](../docs/plans/editor-workflow-gaps.md#2-edit-nested-dataasset-properties) under U8/EN-30.
+  - [x] Change the fixture threshold to 0.25, preserve seed 17 and verify Undo, Redo and save/reopen on UE 5.8.4.
+  - [ ] Review and test whole vectors, indexed arrays and typed references individually.
+- [ ] [Open an editor map](../docs/plans/editor-workflow-gaps.md#3-open-an-editor-map).
+- [ ] [Run an evaluation headlessly](../docs/plans/editor-workflow-gaps.md#4-run-an-evaluation-headlessly).
+- [ ] [Manage long-running evaluation and training jobs](../docs/plans/editor-workflow-gaps.md#5-manage-long-running-evaluation-and-training-jobs).
+- [ ] [Author PhysicsAsset bodies and constraints](../docs/plans/editor-workflow-gaps.md#6-author-physicsasset-bodies-and-constraints).
+- [ ] [Inspect Control Rig and RigVM graphs](../docs/plans/editor-workflow-gaps.md#7-inspect-control-rig-and-rigvm-graphs).
+- [ ] [Inspect Chooser rows and results](../docs/plans/editor-workflow-gaps.md#8-inspect-chooser-rows-and-results) under U4.
+- [ ] [Complete normal workflows with Python disabled](../docs/plans/editor-workflow-gaps.md#9-complete-normal-workflows-with-python-disabled).
+
 ## Checkpoint for every selected slice
 
 - [ ] Bound the implementation handoff, exact verification commands and resources.

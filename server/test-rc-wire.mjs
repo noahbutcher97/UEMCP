@@ -143,6 +143,10 @@ console.log('\n── Test 6: rc-url-translator emits RC endpoint shapes ──'
     'rcSetProperty defaults to WRITE_TRANSACTION_ACCESS');
   t.assert(setP.body.generateTransaction === true,
     'rcSetProperty defaults generateTransaction=true');
+  const nested = rc.rcSetProperty({ objectPath: '/Game/X.Y', propertyName: 'Settings.Inner.Threshold', propertyValue: 0.25 });
+  t.assert(nested.body.propertyName === 'Settings.Inner.Threshold' &&
+    JSON.stringify(nested.body.propertyValue) === '{"Threshold":0.25}',
+    'nested RC writes retain the full address and serialize the leaf field name');
 
   const callF = rc.rcCallFunction({ objectPath: '/Game/X.Y', functionName: 'TakeDamage', parameters: { Amount: 25 } });
   t.assert(callF.method === 'PUT' && callF.path === '/remote/object/call',

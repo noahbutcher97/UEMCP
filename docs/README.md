@@ -77,6 +77,8 @@ own contracts rather than copying them into agent instructions or another status
 inventory. Session-local research may be absent on another machine; durable
 public conclusions should remain discoverable through tracked documentation.
 
+For DataAsset authoring, see [creation and explicit saving](plans/editor-workflow-gaps.md#1-create-a-dataasset) and [reading or editing a live numeric field](plans/editor-workflow-gaps.md#2-edit-nested-dataasset-properties).
+
 **Historical phase-planning context**:
 - See `tracking/risks-and-decisions.md` D58/D77/D87 for historical Phase 3 sequencing; session-local research and handoffs (in `research/`, `handoffs/`) are not tracked.
 

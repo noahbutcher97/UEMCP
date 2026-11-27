@@ -17,7 +17,7 @@ const MUTATIONS = [
   'add_parent_function_call', 'override_parent_member', 'add_math_node',
   'add_self_reference', 'add_component_reference', 'connect_nodes',
   'add_input_action_node', 'bp_compile_and_report',
-  'spawn_actor', 'delete_actor', 'set_actor_transform', 'set_actor_property',
+  'spawn_actor', 'delete_actor', 'set_actor_transform', 'set_actor_property', 'set_data_asset_property',
   'spawn_blueprint_actor', 'create_procedural_mesh', 'mesh_boolean', 'generate_uvs',
   'add_widget_to_viewport', 'run_editor_utility',
   'focus_viewport', 'details_panel_expand_all', 'details_panel_scroll',
@@ -25,6 +25,7 @@ const MUTATIONS = [
   'get_viewport_screenshot', 'capture_asset_editor', 'capture_pie_viewport',
 ];
 const READS = [
+  ['get_data_asset_property', { asset_path: '/Game/DA_Config', property_name: 'Settings.Threshold' }],
   ['get_editor_state', {}],
   ['is_pie_running', {}],
   ['get_pie_session_state', {}],
@@ -100,13 +101,16 @@ function freshExecutorArgs(name, args) {
 }
 
 try {
-  assert.equal(MUTATIONS.length, 37);
-  assert.equal(new Set(MUTATIONS).size, 37);
+  assert.equal(MUTATIONS.length, 38);
+  assert.equal(new Set(MUTATIONS).size, 38);
   app = await createUemcpServer({
     env: {}, cwd: scratch, workspaceRoots: [], writeProjectCodenames: false,
     processInspector: () => [], stderr: { write() {} },
     tcpCommandFn: async (_port, type, params) => {
       calls.push({ type, params, active: app.projectContext.getInFlightMutationCount() });
+      if (type === 'create_data_asset' && params.name === 'DA_Existing') {
+        return { status: 'error', error: 'Destination package already exists', code: 'ASSET_ALREADY_EXISTS' };
+      }
       if (backendFailure && type !== 'ping') throw new Error('Synthetic executor failure');
       return { status: 'success', result: type === 'get_editor_state' ? {
         project_root: projectRoot, uproject_path: uproject, project_name: 'Fixture',
@@ -147,6 +151,16 @@ try {
 
   assertSuccess(await call('attach_project', { uproject_path: uproject }));
   assertSuccess(await call('connection_info', { force_reconnect: true }));
+  await check('DataAsset creation rejects a misspelled destination and preserves native collision codes', async () => {
+    const args = { name: 'DA_Existing', subclass: '/Script/Fixture.EvaluationConfig' };
+    const before = calls.filter(row => row.type === 'create_data_asset').length;
+    const typo = await dispatch('create_data_asset', { ...args, folder: '/Game/Evaluation' });
+    assert.equal(typo.result.isError, true);
+    assert.equal(calls.filter(row => row.type === 'create_data_asset').length, before);
+    const collision = await dispatch('create_data_asset', args);
+    assert.equal(collision.result.isError, true);
+    assert.equal(payload(collision).code, 'ASSET_ALREADY_EXISTS');
+  });
   assert.equal(app.projectContext.editorIdentityState, 'verified');
   assert.equal(app.projectContext.transportOwnershipState, 'verified');
   const toolsets = [...new Set([...MUTATIONS, ...READS.map(([name]) => name)].map(name => definitions.get(name).toolset))];

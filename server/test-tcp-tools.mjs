@@ -700,6 +700,20 @@ console.log('\n── Group 25: P0-10 Vector Shape Validation ──');
     await executeMenhanceTool('bp_compile_and_report', { asset_path: '/Game/X' }, cm);
     t.assert(fake.callsFor('bp_compile_and_report').length === 2,
       'bp_compile_and_report (write) bypasses cache');
+
+    const creation = { name: 'DA_Config', path: '/Game/Evaluation', subclass: '/Script/Fixture.EvaluationConfig' };
+    fake.on('create_data_asset', { status: 'success', result: { dirty: true } });
+    await executeMenhanceTool('create_data_asset', creation, cm);
+    await executeMenhanceTool('create_data_asset', creation, cm);
+    t.assert(fake.callsFor('create_data_asset').length === 2,
+      'create_data_asset retries reach the editor so it can check for an existing package');
+    const field = { asset_path: '/Game/DA_Config', property_name: 'Settings.Threshold' };
+    fake.on('get_data_asset_property', { status: 'success', result: { value: 0.5 } });
+    await executeMenhanceTool('get_data_asset_property', field, cm);
+    fake.on('get_data_asset_property', { status: 'success', result: { value: 0.25 } });
+    const current = await executeMenhanceTool('get_data_asset_property', field, cm);
+    t.assert(fake.callsFor('get_data_asset_property').length === 2 && current.result.value === 0.25,
+      'live DataAsset reads observe intervening editor changes');
   }
 
   // ── Zod validation + unknown-tool rejection ───────────────────

@@ -1515,24 +1515,52 @@ toolsets:
     description: Data asset creation/read, curves, string tables, struct definitions
     tools:
       create_data_asset:
-        status: planned
-        discoverable: false
-        note: Planned writer; excluded until a callable Node/C++ path ships.
-        description: Create UDataAsset of specified subclass
+        status: shipped
+        availability_layer: tcp-55558
+        transport_layer: tcp-55558
+        requires_editor: true
+        requires_pie: false
+        mutates_asset: true
+        mutates_level: false
+        saves_asset: false
+        compiles_asset: false
+        offline_fallback: false
+        description: Create an unsaved DataAsset from a concrete class path returned by list_data_asset_types. Supply an asset name and destination folder (default /Game). Existing packages are refused. Use save_asset for persistence.
         params:
           name:      { type: string, required: true }
           subclass:  { type: string, required: true }
           path:      { type: string, required: false }
-      set_data_asset_property:
-        status: planned
-        discoverable: false
-        replaced_by: read_asset_properties
-        note: Planned writer; verify data asset values with offline read_asset_properties until a callable setter ships.
-        description: Set property on data asset by name and value
+      get_data_asset_property:
+        status: shipped
+        availability_layer: tcp-55558
+        transport_layer: tcp-55558
+        requires_editor: true
+        requires_pie: false
+        mutates_asset: false
+        mutates_level: false
+        saves_asset: false
+        compiles_asset: false
+        offline_fallback: false
+        description: Read a live numeric DataAsset property, including unsaved edits. Use a /Game package or exact object path and a dotted field name such as Settings.Threshold. Returns value and dirty state.
         params:
           asset_path:    { type: string, required: true }
           property_name: { type: string, required: true }
-          value:         { type: any, required: true }
+      set_data_asset_property:
+        status: shipped
+        availability_layer: tcp-55558
+        transport_layer: tcp-55558
+        requires_editor: true
+        requires_pie: false
+        mutates_asset: true
+        mutates_level: false
+        saves_asset: false
+        compiles_asset: false
+        offline_fallback: false
+        description: Change a numeric DataAsset property in an editor transaction. Use a dotted nested field such as Settings.Threshold. Supports editable int32, float and double leaves. Returns previous and live values and dirty state. Call save_asset for persistence.
+        params:
+          asset_path:    { type: string, required: true }
+          property_name: { type: string, required: true }
+          value:         { type: number, required: true }
       # reduced_scope: reflection-only "subclasses defined in loaded modules" (discover runtime-registered DataAsset classes); AR-tag-surface shipped offline
       # displaced_by: query_asset_registry (class_name:DataAsset)
       list_data_asset_types:

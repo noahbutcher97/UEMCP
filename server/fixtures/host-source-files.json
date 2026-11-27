@@ -123,6 +123,7 @@
     "server/fixtures/uemcp-fixture/Source/UEMCPFixture/MaterialGraphOracle.h",
     "server/fixtures/uemcp-fixture/Source/UEMCPFixture/UEMCPFixture.Build.cs",
     "server/fixtures/uemcp-fixture/Source/UEMCPFixture/UEMCPFixture.cpp",
+    "server/fixtures/uemcp-fixture/Source/UEMCPFixture/UEMCPFixtureEvaluationConfig.h",
     "server/fixtures/uemcp-fixture/Source/UEMCPFixture/VerifyMaterialLifecycleCommandlet.cpp",
     "server/fixtures/uemcp-fixture/Source/UEMCPFixture/VerifyMaterialLifecycleCommandlet.h",
     "server/fixtures/uemcp-fixture/Source/UEMCPFixtureEditor.Target.cs",

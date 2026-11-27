@@ -46,13 +46,15 @@ export function rcGetProperty({ objectPath, propertyName, access = 'READ_ACCESS'
 export function rcSetProperty({ objectPath, propertyName, propertyValue, generateTransaction = true, access = 'WRITE_TRANSACTION_ACCESS' }) {
   if (!objectPath) throw new Error('rcSetProperty: objectPath required');
   if (!propertyName) throw new Error('rcSetProperty: propertyName required');
+  // RC uses the full path to locate the field, then deserializes the value by its leaf name.
+  const field = /^(?:\w+\.)+\w+$/.test(propertyName) ? propertyName.slice(propertyName.lastIndexOf('.') + 1) : propertyName;
   return {
     method: 'PUT',
     path: '/remote/object/property',
     body: {
       objectPath,
       propertyName,
-      propertyValue: { [propertyName]: propertyValue },
+      propertyValue: { [field]: propertyValue },
       generateTransaction,
       access,
     },

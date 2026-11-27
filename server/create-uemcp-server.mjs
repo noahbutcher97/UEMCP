@@ -324,6 +324,9 @@ function registerToolGroup(server, toolsetManager, projectContext, log, dispatch
           );
         } catch (err) {
           if (err.graphActionResult) return structuredResult(err.graphActionResult);
+          if (def.structuredErrors && typeof err.code === 'string') {
+            return structuredResult({ ok: false, code: err.code, message: err.message });
+          }
           return {
             content: [{ type: 'text', text: `Error in ${name}: ${err.message}` }],
             isError: true,

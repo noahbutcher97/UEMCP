@@ -48,6 +48,11 @@ export function initMenhanceTools(toolsData) {
 
 // ── Schemas (name → {description, schema, isReadOp}) ──────────────
 
+const dataAssetProperty = {
+  asset_path: z.string().min(1).max(512).describe('Exact /Game DataAsset package or object path'),
+  property_name: z.string().min(1).max(512).describe('Reflected field name or dotted struct path, such as Settings.Threshold'),
+};
+
 export const MENHANCE_SCHEMAS = {
   find_graph_actions: {
     description: 'Discover Enhanced Input events for a pawn Event Graph or Sequence Players for an AnimGraph. Supply a graph name or GUID. If the scan is incomplete, give the exact source asset path. Exact lookup also shows existing nodes for retries.',
@@ -356,6 +361,34 @@ export const MENHANCE_SCHEMAS = {
     },
     isReadOp: true,
     partialRc: { tcpWireType: 'get_string_table_contents', transform: 'identity' },
+  },
+
+  create_data_asset: {
+    description: 'Create an unsaved DataAsset. Use a concrete class path from list_data_asset_types, a single asset name and a /Game destination folder. Existing packages are refused. Call save_asset to persist it.',
+    structuredErrors: true,
+    unknownArgumentMessage: 'Use name, subclass and the optional destination folder path.',
+    schema: {
+      name: z.string().min(1).max(512).describe('Single asset name'),
+      subclass: z.string().min(1).max(512).describe('Exact UDataAsset subclass object path'),
+      path: z.string().min(1).max(512).optional().describe('Destination folder, default /Game'),
+    },
+    isReadOp: false,
+  },
+
+  get_data_asset_property: {
+    description: 'Read a numeric DataAsset field from the editor, including nested and unsaved values. Returns value and package dirty state.',
+    structuredErrors: true,
+    unknownArgumentMessage: 'Use asset_path and property_name.',
+    schema: dataAssetProperty,
+    isReadOp: true,
+  },
+
+  set_data_asset_property: {
+    description: 'Edit one int32, float or double DataAsset field in an undoable transaction. Provide a dotted field path for a nested struct. Returns prior and current values. Call save_asset separately to persist.',
+    structuredErrors: true,
+    unknownArgumentMessage: 'Use asset_path, property_name and a numeric value.',
+    schema: { ...dataAssetProperty, value: z.number().finite() },
+    isReadOp: false,
   },
 
   list_data_asset_types: {
@@ -754,7 +787,9 @@ export async function executeMenhanceTool(toolName, args, connectionManager, sen
   const def = MENHANCE_SCHEMAS[toolName];
   if (!def) throw new Error(`menhance-tcp-tools: unknown tool "${toolName}"`);
 
-  const validated = applyToolSpecificValidation(toolName, z.object(def.schema).parse(args));
+  const schema = z.object(def.schema);
+  const validated = applyToolSpecificValidation(toolName,
+    (def.unknownArgumentMessage ? schema.strict(def.unknownArgumentMessage) : schema).parse(args));
 
   if (toolName === 'find_graph_actions') {
     if (!validated.graph_name && !validated.graph_guid) throw new Error('Supply graph_name or graph_guid to find_graph_actions.');
@@ -770,7 +805,7 @@ export async function executeMenhanceTool(toolName, args, connectionManager, sen
   }
 
   // Undo and edits made in the asset editor can change pin identities between identical reads.
-  const skipCache = !def.isReadOp ||
+  const skipCache = !def.isReadOp || toolName === 'get_data_asset_property' ||
     (toolName === 'get_anim_graph' && (validated.include_pin_topology || validated.include_actions)) ||
     (toolName === 'get_material_graph' && validated.representation === 'source');
 
