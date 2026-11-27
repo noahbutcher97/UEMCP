@@ -1,0 +1,48 @@
+# Headless workloads and package inspection on Win64
+
+Each tested engine authored its own saved fixtures. Native observers recorded the expected graph, table selection, actor positions or joint motion independently of the public reader and job result. The starting revision was `b923432`. The registration and reader landed together in `96c00c7`. The legacy Chaos correction was tested from `4e23802`.
+
+## Results by engine
+
+| Installed Unreal build | Native compilation | Saved inputs through the CLI | Direct package inspection with Unreal closed |
+|---|---|---|---|
+| 5.3.2, CL 29314046 | Fixture editor and plugin | Spacing, PPO, project extension and both hinge limits | An independently saved rig returned `UNSUPPORTED_RIGVM_LAYOUT`. |
+| 5.6.1, CL 44394996 | Fixture editor and plugin | Spacing, PPO, project extension and both hinge limits | An independently saved rig returned `UNSUPPORTED_RIGVM_LAYOUT`. |
+| 5.7 | No installed engine or owned host | Unexercised | Qualification requires an owned 5.7 host and assets authored on it. |
+| 5.8.4, CL 58902052 | Fixture editor and plugin | Spacing, PPO, project extension and both hinge limits | Qualifying RigVM graphs, Chooser rows and independent DataAsset properties matched Unreal. |
+| 5.9 Preview 2, CL 60738873 | Fixture editor and plugin | Spacing, PPO, project extension and both hinge limits | The same comparisons passed on independently saved preview assets. Codex and Claude also inspected both kinds through MCP. |
+
+All four spacing runs used saved positions of 0, 10 and 50 cm. One of three starts passed the 25 cm threshold. With seed 17 the 2,048-step PPO run produced a mean reward of 0.72265625. The project-installed example squared 7 to give 49. For physics, the public workload advanced 180 steps at 120 Hz, starting within 0.00002° of zero. Against authored limits of 55° and 18°, it measured 55.003° and 18.003° on every engine. A separate marker attached to the simulated body agreed to within 0.00002° across all eight cases. Runtime, game-world tick and rendering workloads need their own implementation and qualification.
+
+## Caller, type and source coverage
+
+| Operation and owner | Caller, source and exercised format | Expected and observed behavior |
+|---|---|---|
+| Workload discovery and dispatch, Units 11–13 | MCP discovery, description, direct tools, routed calls, CLI list/run/start/result, legacy spacing CLI, native commandlet and worker | The attached project's definition provided the argument and result schemas. Project A exposed its compiled extension and adjacent project B refused it. An unavailable handler version produced a diagnostic. Equivalent retries recovered one execution. |
+| Durable jobs, Unit 12 | Two MCP clients, a fresh supervisor and project-scoped disk records | A concurrent retry of a real job lasting 15.9 s acknowledged within 1.37 s. Maximum observed poll time was 90 ms. Terminating the worker or cancelling a long physics run left no owned child. Authentic pre-upgrade queued and terminal records survived restart and a reordered retry. |
+| Physics, Unit 14 | CLI and MCP on a saved PhysicsAsset, with a separate Chaos observer | Both limits produced the expected motion. The source digest remained unchanged. A missing joint failed the job. The UE 5.3 accessor initially gave a constant 5,156.6° reading. The correction computes twist from the bodies' live joint frames and validates the physical range on output. |
+| Native RigVM exports and models, Units 15 and 17 | Generic asset property reads by export index and direct `rigvm` inspection. Editor package 1018, RigVM versions 25 and 27, resolved `/Script/RigVMDeveloper.RigVMLink` | Two bounded strings matched directed native endpoints. Three saved edits on each engine resolved model ownership, duplicate names, disconnection, changed defaults and reversed direction. An unresolved endpoint, invalid span or exceeded budget yielded an issue or an error. |
+| Instanced properties, Unit 16 | Shared property reader, asset/default and Blueprint property consumers where an export contains the field, plus the owned serialization regression consumer. Editor package 1018 and InstancedStruct version 0 | A DataAsset containing standalone and array instances matched native exported property text. The registry distinguished `/Script/CoreUObject.DirectoryPath` and `FilePath`, preserved an empty slot, retained an unknown type by qualified name and read the following bounded value. An invalid span stopped that stream. |
+| Chooser rows, Unit 18 | Generic typed fields and direct `chooser` inspection. `/Script/Chooser.ChooserTable`, table versions 3/4 paired with FortniteMain 268/273, InstancedStruct 0 | Name column and binding, equal/not-equal/any, hard and soft asset results, disabled and reordered rows, fallback and missing binding matched 30 native selection checks. The shared registry recognizes ChooserNameColumn, NameContextProperty, AssetChooser and SoftAssetChooser in `/Script/Chooser`. Other types retain a field-level issue where bounded. |
+| Live, snapshot and direct inspection, Unit 19 | Live editor getters, explicit clean snapshot export, version-1 snapshot reader and project-bound raw reader | Dirty editor state diverged from saved bytes as expected. Saving invalidated the prior snapshot. A first-time raw read needed no snapshot or running editor and returned the file digest. Reattaching during an in-flight read returned an attachment-change error. |
+| Package boundaries, Units 15–19 | Controlled editor-package flag changes, sidecar and corruption fixtures | Cooked, stripped, unversioned and split inputs were refused. Bounded unknown fields remained partial. Cooker-produced packages, IoStore containers, additional native serializers and older Chooser table layouts need separate fixtures and semantic comparisons before support can be claimed. |
+
+## Independent review and fixes
+
+| Unit | Independent challenge and disposition |
+|---|---|
+| 10 | The workload reviewer repeated the two baseline tasks against the old provider and inspected imports. The caller inventory gained the owned serialization consumer. The generic property reader exposed references but deferred the instanced values needed to map Chooser rows. |
+| 11 | The coordinator exercised a separate compiled measurement in project A and checked invalid schemas, argument defaults and adjacent project B. Project validation lifetime and request/result bounds were corrected and replayed. |
+| 12 | The coordinator recovered real old records, retried reordered defaults and changed an effective value. Interruption, native version mismatch and same-ID concurrent execution were independently checked against the persisted decisions. |
+| 13 | The coordinator used discover/describe, a read-only dispatcher, invalid inputs and a fresh client. Discovery and routing tests checked permissions. Independent CLI and provider processes recovered the selected result. |
+| 14 | The coordinator compared two limits, source bytes, step counts and process exit. Disagreement on UE 5.3 led to the live-frame correction and an independent projected-marker replay across four engines. |
+| 15 | The coordinator changed saved endpoints and compared generic output with the independent Unreal graph dump. The three saved states had 2, 1 and 2 links. A truncated export beside a valid one could not read across its boundary. |
+| 16 | The independent reviewer tested type identity, a damaged middle instance and a separate non-Chooser DataAsset. A fresh engine reloaded it and exported the typed fields in their original order on both engines. |
+| 17 | The inspector reviewer supplied independent nested models and found a link could be classified as a node. After the fix, both sets of graphs matched their native records, including reversed and disconnected links. |
+| 18 | The reviewer rearranged rows, put a disabled match first and removed a binding. The generic fields and raw row mapping retained order, identities and partial diagnostics. The native evaluator supplied the expected selections. |
+| 19 | Reviewers read a real historical snapshot, edited and saved the source, and switched attached projects mid-read. Fixes clarified the attachment-change diagnostic and made the live origin explicit. |
+| 20 | A release reviewer chose a second saved graph and discovered the project workload on 5.8. A fresh client returned 132.25 for an input of 11.5. On 5.9, separate Codex and Claude sessions found the graph and table, submitted a physics job and recovered it after reconnecting. |
+
+Provider trials used Codex CLI 0.172.0 and Claude Code 2.1.332 with fresh client settings, fixture-scoped MCP tool approval and UEMCP Python execution disabled. The two clients independently reported that `Upstream.Result` fed `Sink.A`, the disconnected `Sink.B` default was 7.25, and the saved Chooser's match and fallback resolved to the authored assets. A second session for each client recovered the actual step count and measured twist. These were agents operating the real provider clients.
+
+The local qualification records in `docs/reports/` are dated 2026-11-27. The filenames end in `registered-workloads.json`, `raw-rig-qualification.json`, `raw-chooser-qualification.json`, `raw-struct-review.json`, `inspection-source-review.json` and `wpi-qualification.json`. They retain exact package and source hashes, commands, observations and provider results. The [workload contract](../specs/evaluation-jobs.md), [inspection contract](../specs/tool-surface.md#rigvm-and-chooser-inspections) and [implementation plan](workloads-and-package-inspection.md) define the public behavior and reproduction checkpoints.

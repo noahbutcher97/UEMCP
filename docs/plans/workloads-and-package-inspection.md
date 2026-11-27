@@ -1,8 +1,8 @@
 # Extensible headless workloads and direct package inspection
 
-Proposed continuation of [editor workflow units 1–9](editor-workflow-gaps.md), based on local revision `b923432`. Units 10–20 are open. The outcome is that a workload registered once can be discovered and executed from the CLI and MCP, and a supported saved asset can be inspected from its package in a fresh process with Unreal closed and no prior export. Compatibility is recorded per workload, execution mode, asset layout, caller and engine build.
+Continuation of [editor workflow units 1–9](editor-workflow-gaps.md), based on local revision `b923432`. See the [per-engine results, caller matrix and independent review for each unit](workload-and-inspection-qualification.md). With these changes, a workload registered once can be discovered and executed from the CLI and MCP, and a supported saved asset can be inspected from its package in a fresh process with Unreal closed and no prior export. Compatibility is recorded per workload, execution mode, asset layout, caller and engine build.
 
-## Starting evidence and decisions
+## Starting evidence and decisions at `b923432`
 
 - The durable queue already owns request identity, worker lifetime, cancellation and recovery. Its input validator assumes spacing inputs and its worker always calls the spacing evaluator before optional PPO training. Preserve the queue and move those assumptions into workload definitions. [Job implementation](../../server/evaluation-jobs.mjs) · [Current public contract](../specs/evaluation-jobs.md)
 - The package reader already resolves names, imports, exports and tagged properties. It has a struct handler registry. An exploratory read of the installed `CR_PhysCube` sample found five RigVM graph exports, 1,787 pin exports and 133 link exports. Reading the two serialized endpoint strings consumed the exact export span for all 133 links. This establishes a feasible layout for one sample. Graph membership, semantic equality with the editor and other layouts need independent fixtures. [Package reader](../../server/uasset-parser.mjs) · [Struct handlers](../../server/uasset-structs.mjs)

@@ -79,7 +79,7 @@ public conclusions should remain discoverable through tracked documentation.
 
 For PhysicsAsset editing, see [body and constraint authoring and simulation qualification](plans/editor-workflow-gaps.md#6-author-physicsasset-bodies-and-constraints).
 
-For headless evaluation, training, cancellation and reconnecting for results, see the [saved evaluation and job contract](specs/evaluation-jobs.md).
+For headless evaluation, training, cancellation and reconnecting for results, see the [saved evaluation and job contract](specs/evaluation-jobs.md). For first-time inspection of saved Control Rig graphs and Chooser rows, see the [inspection tools](specs/tool-surface.md#rigvm-and-chooser-inspections) and [tested workloads, callers and package layouts by engine](plans/workload-and-inspection-qualification.md).
 
 For DataAsset authoring, see [creation and explicit saving](plans/editor-workflow-gaps.md#1-create-a-dataasset) and [editing a nested value, array element or asset reference](plans/editor-workflow-gaps.md#2-edit-nested-dataasset-properties). To switch the active editor world and preserve unsaved level edits, see [opening a saved map](plans/editor-workflow-gaps.md#3-open-an-editor-map).
 

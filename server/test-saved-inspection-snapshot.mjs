@@ -22,7 +22,10 @@ try {
   const exported = await exportInspection(root, args, inspect, () => {});
   const read = await readSavedInspection(root, args);
   t.assert(exported.source_sha256 === read.source_sha256 && read.origin === 'saved_editor_snapshot' &&
-    JSON.stringify(read.graphs) === JSON.stringify(payload.graphs), 'round trip retains source identity and actual graph');
+    JSON.stringify(read.graphs) === JSON.stringify(payload.graphs), 'version 1 payload without origin retains source identity and actual graph');
+  const live = { ...payload, origin: 'live_editor' };
+  await exportInspection(root, args, async () => ({ result: live }), () => {});
+  t.assert((await readSavedInspection(root, args)).origin === 'saved_editor_snapshot', 'reading an export identifies the snapshot as its source');
   const reject = async (fn, pattern, label) => {
     await assert.rejects(fn, pattern);
     t.assert(true, label);

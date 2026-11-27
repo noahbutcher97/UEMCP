@@ -189,27 +189,27 @@ Mark a unit complete after its acceptance review records the supported scope.
 - [x] [Run an evaluation headlessly](../docs/plans/editor-workflow-gaps.md#4-run-an-evaluation-headlessly).
 - [x] [Manage long-running evaluation and training jobs](../docs/plans/editor-workflow-gaps.md#5-manage-long-running-evaluation-and-training-jobs).
 - [x] [Author PhysicsAsset bodies and constraints](../docs/plans/editor-workflow-gaps.md#6-author-physicsasset-bodies-and-constraints). Verified existing twist edits, sphere and hinge creation, Undo/Redo, save/reopen and fixed-step Chaos response on Win64 UE 5.9 Preview 2.
-- [x] [Inspect Control Rig and RigVM graphs](../docs/plans/editor-workflow-gaps.md#7-inspect-control-rig-and-rigvm-graphs). Live topology and hash-verified saved snapshots qualified on UE 5.9 Preview 2. Direct package graph decoding remains open.
+- [x] [Inspect Control Rig and RigVM graphs](../docs/plans/editor-workflow-gaps.md#7-inspect-control-rig-and-rigvm-graphs). Live topology and hash-verified saved snapshots qualified on UE 5.9 Preview 2. Units 15 and 17 subsequently qualified first-time package reads on two layouts.
 - [x] [Inspect Chooser rows and results](../docs/plans/editor-workflow-gaps.md#8-inspect-chooser-rows-and-results) under U4.
 - [x] [Complete normal workflows with Python disabled](../docs/plans/editor-workflow-gaps.md#9-complete-normal-workflows-with-python-disabled).
 
 ## Extensible headless workloads and direct package inspection
 
-Follow the [implementation plan and dependency table](../docs/plans/workloads-and-package-inspection.md#order-and-ownership).
+See the [implementation plan and dependencies](../docs/plans/workloads-and-package-inspection.md#order-and-ownership) and [unit reviews and qualification matrix](../docs/plans/workload-and-inspection-qualification.md).
 Check a unit only after its acceptance run, independent review, fix round and
 reviewer replay are recorded against the final revision.
 
-- [ ] [10. Establish the caller and fixture inventory](../docs/plans/workloads-and-package-inspection.md#10-establish-the-caller-and-fixture-inventory)
-- [ ] [11. Define a versioned workload and register spacing and PPO](../docs/plans/workloads-and-package-inspection.md#11-define-a-versioned-workload-and-register-spacing-and-ppo)
-- [ ] [12. Route durable execution and recovery through the registration](../docs/plans/workloads-and-package-inspection.md#12-route-durable-execution-and-recovery-through-the-registration)
-- [ ] [13. Make workloads discoverable and executable through MCP and CLI](../docs/plans/workloads-and-package-inspection.md#13-make-workloads-discoverable-and-executable-through-mcp-and-cli)
-- [ ] [14. Prove extensibility with a physics evaluation](../docs/plans/workloads-and-package-inspection.md#14-prove-extensibility-with-a-physics-evaluation)
-- [ ] [15. Decode native export payloads in the shared reader](../docs/plans/workloads-and-package-inspection.md#15-decode-native-export-payloads-in-the-shared-reader)
-- [ ] [16. Decode typed instanced structs and containers](../docs/plans/workloads-and-package-inspection.md#16-decode-typed-instanced-structs-and-containers)
-- [ ] [17. Reconstruct RigVM graphs with no prior export](../docs/plans/workloads-and-package-inspection.md#17-reconstruct-rigvm-graphs-with-no-prior-export)
-- [ ] [18. Reconstruct Chooser rows with no prior export](../docs/plans/workloads-and-package-inspection.md#18-reconstruct-chooser-rows-with-no-prior-export)
-- [ ] [19. Connect direct, live and snapshot reads across callers](../docs/plans/workloads-and-package-inspection.md#19-connect-direct-live-and-snapshot-reads-across-callers)
-- [ ] [20. Qualify the whole caller matrix and close the work](../docs/plans/workloads-and-package-inspection.md#20-qualify-the-whole-caller-matrix-and-close-the-work)
+- [x] [10. Establish the caller and fixture inventory](../docs/plans/workloads-and-package-inspection.md#10-establish-the-caller-and-fixture-inventory)
+- [x] [11. Define a versioned workload and register spacing and PPO](../docs/plans/workloads-and-package-inspection.md#11-define-a-versioned-workload-and-register-spacing-and-ppo)
+- [x] [12. Route durable execution and recovery through the registration](../docs/plans/workloads-and-package-inspection.md#12-route-durable-execution-and-recovery-through-the-registration)
+- [x] [13. Make workloads discoverable and executable through MCP and CLI](../docs/plans/workloads-and-package-inspection.md#13-make-workloads-discoverable-and-executable-through-mcp-and-cli)
+- [x] [14. Prove extensibility with a physics evaluation](../docs/plans/workloads-and-package-inspection.md#14-prove-extensibility-with-a-physics-evaluation)
+- [x] [15. Decode native export payloads in the shared reader](../docs/plans/workloads-and-package-inspection.md#15-decode-native-export-payloads-in-the-shared-reader)
+- [x] [16. Decode typed instanced structs and containers](../docs/plans/workloads-and-package-inspection.md#16-decode-typed-instanced-structs-and-containers)
+- [x] [17. Reconstruct RigVM graphs with no prior export](../docs/plans/workloads-and-package-inspection.md#17-reconstruct-rigvm-graphs-with-no-prior-export)
+- [x] [18. Reconstruct Chooser rows with no prior export](../docs/plans/workloads-and-package-inspection.md#18-reconstruct-chooser-rows-with-no-prior-export)
+- [x] [19. Connect direct, live and snapshot reads across callers](../docs/plans/workloads-and-package-inspection.md#19-connect-direct-live-and-snapshot-reads-across-callers)
+- [x] [20. Qualify the whole caller matrix and close the work](../docs/plans/workloads-and-package-inspection.md#20-qualify-the-whole-caller-matrix-and-close-the-work)
 
 ## Checkpoint for every selected slice
 

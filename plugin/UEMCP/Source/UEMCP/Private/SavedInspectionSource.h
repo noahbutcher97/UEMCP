@@ -46,6 +46,7 @@ namespace UEMCP
 	inline void AddInspectionSource(FJsonObject& Result, UObject& Asset, const TSharedPtr<FJsonObject>& Params)
 	{
 		UPackage* Package = Asset.GetOutermost();
+		Result.SetStringField(TEXT("origin"), TEXT("live_editor"));
 		Result.SetBoolField(TEXT("dirty"), Package->IsDirty());
 		Result.SetStringField(TEXT("engine_version"), FEngineVersion::Current().ToString());
 		bool bVerify = false;
