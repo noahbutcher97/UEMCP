@@ -44,6 +44,12 @@ Use `Join-Path $stage 'host/UEMCPFixture.uproject'` to locate the project. Build
 `Engine/Build/BatchFiles/Build.bat`, using a bounded process runner. No build or
 editor starts during staging. Do not use a live consumer project.
 
+When attaching an agent CLI to this disposable project, set its UEMCP
+command to `node` and its argument to the absolute path of
+`server/fixtures/stdio-test-server.mjs` in the checkout. This keeps generated
+directory names out of the developer's NDA lists while exposing the production
+tools over stdio. See the [agent CLI protocol](agent-workflow-usability.md).
+
 ### Retire an output from a completed run step
 
 After the last consumer exits, keep the log, manifest and verification receipt
