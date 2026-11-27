@@ -7,8 +7,7 @@ import { createConnection, createServer } from 'node:net';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { tmpdir } from 'node:os';
-import { runSpacingEvaluation, validateSpacingInputs } from './run-spacing-evaluation.mjs';
-import { trainSpacingPolicy } from './spacing-policy.mjs';
+import { canonicalJson, executeRegistered, loadWorkloads, workloadRequest } from './evaluation-workloads.mjs';
 
 const workerFile = fileURLToPath(import.meta.url);
 const idPattern = /^[a-f0-9]{64}$/;
@@ -27,8 +26,10 @@ const doc = (dir, name) => {
 function record(dir, name, value, replace = false) {
   const path = join(dir, name + '.json'), tmp = join(dir, randomUUID() + '.pending');
   try {
+    const encoded = JSON.stringify(value);
+    if (Buffer.byteLength(encoded) > 1024 * 1024) throw new Error('Job record exceeds 1 MiB: ' + name);
     const fd = openSync(tmp, 'wx');
-    try { writeFileSync(fd, JSON.stringify(value)); fsyncSync(fd); } finally { closeSync(fd); }
+    try { writeFileSync(fd, encoded); fsyncSync(fd); } finally { closeSync(fd); }
     if (replace) renameSync(tmp, path);
     else linkSync(tmp, path);
     return true;
@@ -50,16 +51,6 @@ function storage(project, create) {
   const canonical = realpathSync(project);
   const projectKey = hash(process.platform === 'win32' ? canonical.toLowerCase() : canonical);
   return directory(dir, projectKey, create);
-}
-
-function input(args) {
-  const { request_id, config, map, seed, kind = 'player_start_spacing', steps } = args;
-  if (typeof request_id !== 'string' || !/^[a-zA-Z0-9_-]{1,80}$/.test(request_id)) throw new Error('Supply a stable request_id of 1–80 letters, digits, underscores or hyphens.');
-  validateSpacingInputs({ config, map, seed });
-  if (!['player_start_spacing', 'train_spacing_policy'].includes(kind)) throw new Error('Unknown job kind.');
-  if (kind === 'train_spacing_policy' && (!Number.isInteger(steps) || steps < 32 || steps > 8192)) throw new Error('Training requires 32–8192 steps.');
-  if (kind !== 'train_spacing_policy' && steps !== undefined) throw new Error('Only training accepts steps.');
-  return { request_id, kind, config, map, seed, ...(steps === undefined ? {} : { steps }) };
 }
 
 function endpointFor(store) {
@@ -86,7 +77,7 @@ function describe(dir, id, owner, includeResult = false) {
   const running = claim && claim.owner === owner;
   let state = decision?.state ?? (claim ? (running ? 'running' : 'recovering') : 'queued');
   if (state === 'cancelled' && claim && !doc(dir, 'finished')) state = 'cancelling';
-  const result = { job_id: id, request_id: req.input.request_id, kind: req.input.kind, state,
+  const result = { job_id: id, request_id: req.input.request_id, kind: req.input.kind, version: req.input.version ?? 1, state,
     progress: doc(dir, 'progress') ?? { phase: state }, artifacts: [] };
   if (decision && ['failed', 'cancelled', 'succeeded'].includes(state)) result.progress = { ...result.progress, phase: state };
   if (existsSync(join(dir, 'evaluation.log'))) result.artifacts.push('evaluation.log');
@@ -121,11 +112,23 @@ async function wake(project, env) {
 export async function executeEvaluationJob(name, args, project, env = process.env, launchWorker = wake) {
   if (!project) throw new Error('Attach a project first.');
   project = realpathSync(project);
+  if (name === 'list_evaluation_workloads') {
+    return { workloads: Array.from(loadWorkloads(project).values(), spec => spec.metadata) };
+  }
   if (name === 'start_evaluation_job') {
-    const params = input(args), store = storage(project, true), id = hash(params.request_id);
+    const catalog = loadWorkloads(project, args.kind ?? 'player_start_spacing');
+    const params = workloadRequest(args, catalog);
+    const definition = catalog.get(params.kind);
+    const store = storage(project, true), id = hash(params.request_id);
     const dir = directory(store, id, true);
-    const created = record(dir, 'request', { input: params, registered: Date.now() });
-    if (!created && JSON.stringify(doc(dir, 'request')?.input) !== JSON.stringify(params)) throw new Error('REQUEST_CONFLICT: this request_id is bound to different inputs.');
+    const created = record(dir, 'request', { input: params, registration: definition.fingerprint, registered: Date.now() });
+    if (!created) {
+      const original = doc(dir, 'request');
+      const prior = original.input.version === undefined
+        ? workloadRequest({ ...original.input, version: 1 }, catalog) : original.input;
+      if (canonicalJson(prior) !== canonicalJson(params) || (original.registration && original.registration !== definition.fingerprint))
+        throw new Error('REQUEST_CONFLICT: this request_id is bound to different inputs or registration.');
+    }
     const owner = await ownerOf(store);
     const status = describe(dir, id, owner);
     if (['queued', 'recovering', 'cancelling'].includes(status.state) && owner === null) await launchWorker(project, env);
@@ -149,26 +152,25 @@ export async function executeEvaluationJob(name, args, project, env = process.en
 
 async function executeOne(project, dir, request, owner) {
   if (doc(dir, 'decision')) return;
-  const args = input(request.input);
   if (!record(dir, 'claim', { pid: process.pid, owner, started: Date.now() })) return;
   const controller = new AbortController();
   const check = () => { if (doc(dir, 'decision')?.state === 'cancelled') controller.abort(); };
   const interval = setInterval(check, 100);
   try {
-    check();
-    record(dir, 'progress', { phase: 'evaluating' }, true);
-    const evaluation = await runSpacingEvaluation({ ...args, project, output: dir, signal: controller.signal,
-      onChild: pid => record(dir, 'child', { pid }) });
-    let policy;
-    if (args.kind === 'train_spacing_policy') {
-      policy = trainSpacingPolicy(evaluation, args.steps, steps => {
-        if (doc(dir, 'decision')?.state === 'cancelled') throw new Error('Training cancelled.');
-        if (steps % 512 === 0 || steps === args.steps) record(dir, 'progress', { phase: 'training', steps }, true);
-      });
-    }
-    record(dir, 'decision', { state: 'succeeded', result: { evaluation, ...(policy ? { policy } : {}) } });
+    const catalog = loadWorkloads(project, request.input.kind);
+    const args = workloadRequest({ ...request.input, version: request.input.version ?? 1 }, catalog);
+    const definition = catalog.get(args.kind);
+    if (request.registration && request.registration !== definition.fingerprint)
+      throw new Error('The registered workload definition changed since submission. Restore its version or submit a new request.');
+    const progress = value => record(dir, 'progress', value, true);
+    progress({ phase: 'evaluating' });
+    const result = await executeRegistered(definition, args.inputs, {
+      project, output: dir, signal: controller.signal, progress, onChild: pid => record(dir, 'child', { pid }),
+      checkCancellation() { check(); if (controller.signal.aborted) throw new Error('Evaluation cancelled.'); },
+    });
+    record(dir, 'decision', { state: 'succeeded', result });
   } catch (error) {
-    record(dir, 'decision', { state: 'failed', error: error.message });
+    record(dir, 'decision', { state: 'failed', error: String(error.message).slice(0, 8192) });
   } finally {
     clearInterval(interval);
     record(dir, 'finished', { time: Date.now() });

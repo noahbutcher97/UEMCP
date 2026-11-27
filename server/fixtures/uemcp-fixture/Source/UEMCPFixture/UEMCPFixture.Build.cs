@@ -6,6 +6,10 @@ public class UEMCPFixture : ModuleRules
 	{
 		PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
 		PublicDependencyModuleNames.AddRange(new string[] { "Core", "CoreUObject", "Engine" });
+		if (Target.Version.MajorVersion == 5 && Target.Version.MinorVersion < 5)
+		{
+			PublicDependencyModuleNames.Add("StructUtils");
+		}
 		if (Target.bBuildEditor && Target.Version.MajorVersion == 5 && Target.Version.MinorVersion >= 8)
 		{
 			PrivateDependencyModuleNames.AddRange(new string[] { "Chooser", "AssetRegistry" });

@@ -280,7 +280,8 @@ function makeLogger(server, stderr) {
 }
 
 function buildOfflineSchemaShape(def) {
-  return buildZodSchema(def.params);
+  const shape = buildZodSchema(def.params);
+  return def.strict_arguments ? z.object(shape).strict() : shape;
 }
 
 function buildTcpSchemaShape(def) {
@@ -958,7 +959,7 @@ export async function createUemcpServer(options = {}) {
   // The package reader can work alone. For a comparison, bind the read to
   // the current TCP endpoint using its own uncached project handshake.
   function checkInspectionAttachment(generation) {
-    if (generation !== projectContext.generation) throw new Error('Project attachment changed during pin inspection');
+    if (generation !== projectContext.generation) throw new Error('Project attachment changed during asset inspection');
   }
 
   async function readVerifiedInspection(name, args, generation) {
@@ -981,13 +982,14 @@ export async function createUemcpServer(options = {}) {
       TOOLS_YAML.toolsets.offline.tools,
       buildOfflineSchemaShape,
       (name, args) => {
-        if (['start_evaluation_job', 'get_evaluation_job', 'get_evaluation_result', 'cancel_evaluation_job'].includes(name)) {
+        if (['list_evaluation_workloads', 'start_evaluation_job', 'get_evaluation_job', 'get_evaluation_result', 'cancel_evaluation_job'].includes(name)) {
           return executeEvaluationJob(name, args, projectContext.identity?.uprojectPath, env);
         }
         const generation = projectContext.generation;
         return executeOfflineTool(name, args,
           projectContext.identity?.projectRoot || connectionManager.getAttachedProjectRoot(),
-          pins => readVerifiedInspection('show_blueprint_pin_links', pins, generation));
+          pins => readVerifiedInspection('show_blueprint_pin_links', pins, generation),
+          () => checkInspectionAttachment(generation));
       }
     );
 

@@ -35,9 +35,13 @@ Normalized map capabilities:
 
 Configured engine structs:
 
-- Engine structs: `FVector`, `FRotator`, `FQuat`, `FTransform`, `FLinearColor`, `FColor`, `FVector2D`, `FVector4`, `FGuid`, `FBox`, `FIntPoint`, `FBodyInstance`, `FSoftObjectPath`, `FSoftClassPath`, `FGameplayTag`, `FGameplayTagContainer`, `FExpressionInput`, `FColorMaterialInput`, `FScalarMaterialInput`, `FShadingModelMaterialInput`, `FSubstrateMaterialInput`, `FVectorMaterialInput`, `FVector2MaterialInput`, `FMaterialAttributesInput`.
+- Engine structs: `FVector`, `FRotator`, `FQuat`, `FTransform`, `FLinearColor`, `FColor`, `FVector2D`, `FVector4`, `FGuid`, `FBox`, `FIntPoint`, `FBodyInstance`, `FSoftObjectPath`, `FSoftClassPath`, `FGameplayTag`, `FGameplayTagContainer`, `FExpressionInput`, `FColorMaterialInput`, `FScalarMaterialInput`, `FShadingModelMaterialInput`, `FSubstrateMaterialInput`, `FVectorMaterialInput`, `FVector2MaterialInput`, `FMaterialAttributesInput`, `FInstancedStruct`.
 
 Unknown structs use tagged self-describing decoding where possible; unhandled layouts return markers rather than being silently skipped.
+
+For versioned editor packages with UE5 package version 1018 and instanced-struct custom version 0, the reader decodes standalone instances and supported array, set and map-value elements. Known payloads use their fully qualified script struct identity. The current layouts cover CoreUObject file and directory paths and the Chooser name column, name context binding, hard asset result and soft asset result. An unknown instance retains its type, size and field path. Its serialized size determines where the next element begins. An invalid size makes the containing value unreadable. Native authoring and raw comparison used independently saved UE 5.8.4 and 5.9 Preview 2 packages.
+
+Direct Chooser inspection additionally checks the saved FortniteMain version used by soft paths (268 or 273), the table migration version if present (through 3 or 4 respectively) and the absence of legacy interface rows needing Unreal conversion. Cooked, stripped and unversioned-property inputs return an unsupported-layout error. A supported name filter uses Unreal's name comparison and preserves its context binding, row order, disabled status and fallback.
 
 ### Reason-Code Taxonomy
 
@@ -88,4 +92,6 @@ Active toolset membership and layer assignment come from `tools.yaml`.
 
 For a saved read, call `export_asset_inspection` with the package path and `kind` set to `rigvm` or `chooser`. Save intentionally first if the asset has unsaved changes. Export checks the loaded package against the engine's hash of its saved header and exports. It writes a versioned snapshot under the attached project's `Saved/UEMCP/Inspections`. It accepts editor packages up to 64 MiB with a supported engine save hash. Older packages with no usable save hash can still be inspected live.
 
-With Unreal closed, call `read_saved_asset_inspection` with the same arguments. It reports the snapshot origin and source SHA-256 and rejects a changed source package, a mismatched payload digest or an unsupported schema. Unsaved editor changes are visible through the live tool while the saved snapshot continues to describe the disk version. After saving new changes, export again. Direct package decoding of these model types remains open.
+With Unreal closed, call `read_saved_asset_inspection` to read that export. It reports the snapshot origin and source SHA-256 and rejects a changed source package, a mismatched payload digest or an unsupported schema. Unsaved editor changes are visible through the live tool while the saved snapshot continues to describe the disk version. After saving new changes, export again to refresh the snapshot.
+
+For a first-time disk read, call `read_package_inspection` with `asset_path` and `kind` (`rigvm` or `chooser`). It reads a monolithic editor package under the attached project's Content directory, up to 64 MiB. No editor or prior export is required. The response identifies its origin as `raw_package` and records the package version, SHA-256, completeness and issues. Use the graph path to distinguish identical local pin names. Check issues before interpreting a partial table. Requests for stripped, cooked or unsupported layouts can fail. Source selection is explicit. A raw read creates no snapshot.

@@ -287,7 +287,7 @@ function dedupeUnsupported(arr) {
   const seen = new Set();
   const out = [];
   for (const m of arr) {
-    const key = `${m?.name ?? ''}::${m?.reason ?? ''}`;
+    const key = `${m?.field_path ?? m?.name ?? ''}::${m?.reason ?? ''}`;
     if (seen.has(key)) continue;
     seen.add(key);
     out.push(m);
@@ -329,9 +329,7 @@ function buildRequestedPropertyRows(requestedNames, parsed) {
 
 function readPropertyExport(ctx, exportEntry, maxBytes) {
   return readExportProperties(ctx.buf, exportEntry, ctx.names, {
-    resolve: ctx.resolve,
-    structHandlers: ctx.structHandlers,
-    containerHandlers: ctx.containerHandlers,
+    ...ctx,
     maxBytes,
   });
 }
@@ -825,7 +823,7 @@ export async function inspectBlueprint(projectRoot, params) {
   const includeDefaults = params.include_defaults ?? false;
   const ctx = await parseAssetForPropertyRead(projectRoot, assetPath);
   const header = await parseAssetHeader(projectRoot, assetPath);
-  const { diskPath, stats, buf, exports, imports, names, resolve, structHandlers, containerHandlers } = ctx;
+  const { diskPath, stats, buf, exports, imports, names } = ctx;
   const primary = header.data.assetRegistry.objects[0] || null;
 
   const exportRows = exports.map((e, i) => ({
@@ -866,7 +864,7 @@ export async function inspectBlueprint(projectRoot, params) {
       result.variable_defaults = {};
       result.unsupported_defaults = [{ name: '__cdo__', reason: 'no_cdo_export_found' }];
     } else {
-      const r = readExportProperties(buf, cdoExport, names, { resolve, structHandlers, containerHandlers });
+      const r = readExportProperties(buf, cdoExport, names, ctx);
       result.cdo_export_name = cdoName;
       result.variable_defaults = stripPackageIndex(r.properties);
       result.unsupported_defaults = dedupeUnsupported(r.unsupported);
@@ -996,7 +994,7 @@ export async function listLevelActors(projectRoot, params) {
   const mapPath = assetPath.endsWith('.umap') || assetPath.endsWith('.uasset')
     ? assetPath : assetPath + '.umap';
   const ctx = await parseAssetForPropertyRead(projectRoot, mapPath);
-  const { diskPath, stats, buf, names, imports, exports, resolve, structHandlers, containerHandlers } = ctx;
+  const { diskPath, stats, buf, names, imports, exports } = ctx;
 
   // Collect placed actors with their original export index for outerIndex lookup.
   const placed = [];
@@ -1045,8 +1043,7 @@ export async function listLevelActors(projectRoot, params) {
     const root = findRootComponentExport(index, exports, imports);
     if (root) {
       try {
-        row.transform = readComponentTransform(buf, root, names,
-          { resolve, structHandlers, containerHandlers });
+        row.transform = readComponentTransform(buf, root, names, ctx);
       } catch (err) {
         row.unsupported = [{ name: 'transform', reason: 'root_component_parse_failed' }];
       }

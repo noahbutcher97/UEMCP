@@ -36,6 +36,9 @@ function assertTopIncludesAny(query, expectedAny, maxResults = 5) {
 
 assertTopIncludes('Control Rig pins and links', 'get_rigvm_graph');
 assertTopIncludes('offline RigVM graph', 'read_saved_asset_inspection');
+assertTopIncludes('direct saved RigVM pin links', 'read_package_inspection');
+assertTopIncludes('Chooser rows without export', 'read_package_inspection');
+assertTopIncludes('list evaluation workloads', 'list_evaluation_workloads');
 assertTopIncludes('export RigVM graph', 'export_asset_inspection');
 assertTopIncludes('create data asset from subclass', 'create_data_asset');
 assertTopIncludes('edit nested numeric data asset property', 'set_data_asset_property');

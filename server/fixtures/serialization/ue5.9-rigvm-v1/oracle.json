@@ -1,0 +1,137 @@
+{
+  "graphs": [
+    {
+      "path": "RigVMModel::",
+      "nodes": [
+        {
+          "name": "Upstream",
+          "pins": [
+            {
+              "path": "Upstream.A",
+              "type": "float",
+              "direction": "INPUT",
+              "default": "0.000000"
+            },
+            {
+              "path": "Upstream.B",
+              "type": "float",
+              "direction": "INPUT",
+              "default": "0.000000"
+            },
+            {
+              "path": "Upstream.Result",
+              "type": "float",
+              "direction": "OUTPUT",
+              "default": "0.000000"
+            }
+          ]
+        },
+        {
+          "name": "Sink",
+          "pins": [
+            {
+              "path": "Sink.A",
+              "type": "float",
+              "direction": "INPUT",
+              "default": "0.000000"
+            },
+            {
+              "path": "Sink.B",
+              "type": "float",
+              "direction": "INPUT",
+              "default": "7.25"
+            },
+            {
+              "path": "Sink.Result",
+              "type": "float",
+              "direction": "OUTPUT",
+              "default": "0.000000"
+            }
+          ]
+        },
+        {
+          "name": "Nested",
+          "pins": []
+        }
+      ],
+      "links": [
+        {
+          "source": "Upstream.Result",
+          "target": "Sink.A"
+        }
+      ]
+    },
+    {
+      "path": "RigVMModel::|Nested",
+      "nodes": [
+        {
+          "name": "Entry",
+          "pins": []
+        },
+        {
+          "name": "Return",
+          "pins": []
+        },
+        {
+          "name": "Inner",
+          "pins": [
+            {
+              "path": "Inner.A",
+              "type": "float",
+              "direction": "INPUT",
+              "default": "0.000000"
+            },
+            {
+              "path": "Inner.B",
+              "type": "float",
+              "direction": "INPUT",
+              "default": "0.000000"
+            },
+            {
+              "path": "Inner.Result",
+              "type": "float",
+              "direction": "OUTPUT",
+              "default": "0.000000"
+            }
+          ]
+        },
+        {
+          "name": "Upstream",
+          "pins": [
+            {
+              "path": "Upstream.A",
+              "type": "float",
+              "direction": "INPUT",
+              "default": "0.000000"
+            },
+            {
+              "path": "Upstream.B",
+              "type": "float",
+              "direction": "INPUT",
+              "default": "0.000000"
+            },
+            {
+              "path": "Upstream.Result",
+              "type": "float",
+              "direction": "OUTPUT",
+              "default": "0.000000"
+            }
+          ]
+        }
+      ],
+      "links": [
+        {
+          "source": "Upstream.Result",
+          "target": "Inner.A"
+        }
+      ]
+    },
+    {
+      "path": "FunctionLibrary::",
+      "nodes": [],
+      "links": []
+    }
+  ],
+  "source_sha256": "bfc0511d18bb51b0a8487875870a3879307629991cc78fe97cd3ba16322d41a1",
+  "engine": "5.9.0-60738873+++UE5+Release-5.9"
+}

@@ -112,7 +112,8 @@ bool UPhysicsAssetProbe::FlipInvalidTopology(UPhysicsAsset* Asset, bool bIntrodu
 FString UPhysicsAssetProbe::Observe(UPhysicsAsset* Asset, FName SimulateJoint)
 {
 #if WITH_EDITOR
-	if (!PhysicsAssetProbe::IsFixture(Asset) || !Asset->GetPreviewMesh()) return TEXT("unexpected fixture");
+	const bool bSecondLimitFixture = Asset && Asset->GetPathName() == TEXT("/Game/PhysicsQualification/PA_Narrow.PA_Narrow");
+	if ((!PhysicsAssetProbe::IsFixture(Asset) && !bSecondLimitFixture) || !Asset->GetPreviewMesh()) return TEXT("unexpected fixture");
 	auto Result = MakeShared<FJsonObject>();
 	Result->SetBoolField(TEXT("dirty"), Asset->GetOutermost()->IsDirty());
 	TArray<TSharedPtr<FJsonValue>> Bodies, Joints;

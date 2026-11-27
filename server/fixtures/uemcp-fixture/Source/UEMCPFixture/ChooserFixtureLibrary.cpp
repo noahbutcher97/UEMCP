@@ -84,6 +84,33 @@ bool UChooserFixtureLibrary::CreateChooserFixture()
 #endif
 }
 
+bool UChooserFixtureLibrary::CreateInstancedStructFixture()
+{
+#if WITH_EDITOR && ENGINE_MAJOR_VERSION == 5 && ENGINE_MINOR_VERSION >= 8
+	UUEMCPFixtureInstancedAsset* Asset = Cast<UUEMCPFixtureInstancedAsset>(NewChooserFixtureAsset(
+		UUEMCPFixtureInstancedAsset::StaticClass(), TEXT("DA_Instances")));
+	if (!Asset) return false;
+	Asset->Value.InitializeAs<FFilePath>();
+	Asset->Value.GetMutable<FFilePath>().FilePath = TEXT("Authoring/Inside.txt");
+	FInstancedStruct& First = Asset->Values.AddDefaulted_GetRef();
+	First.InitializeAs<FDirectoryPath>();
+	First.GetMutable<FDirectoryPath>().Path = TEXT("Authoring/Start");
+	FInstancedStruct& Middle = Asset->Values.AddDefaulted_GetRef();
+	Middle.InitializeAs<FUEMCPFixturePayload>();
+	auto& Payload = Middle.GetMutable<FUEMCPFixturePayload>();
+	Payload.Count = 37;
+	Payload.Nested.InitializeAs<FUEMCPChooserInput>();
+	Payload.Nested.GetMutable<FUEMCPChooserInput>().Key = TEXT("Inside");
+	Asset->Values.AddDefaulted();
+	FInstancedStruct& Tail = Asset->Values.AddDefaulted_GetRef();
+	Tail.InitializeAs<FFilePath>();
+	Tail.GetMutable<FFilePath>().FilePath = TEXT("Authoring/After.txt");
+	return SaveChooserFixtureAsset(Asset);
+#else
+	return false;
+#endif
+}
+
 bool UChooserFixtureLibrary::SwapChooserFixtureResults()
 {
 #if WITH_EDITOR && ENGINE_MAJOR_VERSION == 5 && ENGINE_MINOR_VERSION >= 8
@@ -105,6 +132,28 @@ bool UChooserFixtureLibrary::AddUnsupportedChooserColumn()
 	if (!Table || Table->ColumnsStructs.Num() != 1) return false;
 	Table->ColumnsStructs.AddDefaulted_GetRef().InitializeAs<FBoolColumn>();
 	Table->MarkPackageDirty();
+	return true;
+#else
+	return false;
+#endif
+}
+
+bool UChooserFixtureLibrary::SetChooserFixtureComparisons()
+{
+#if WITH_EDITOR && ENGINE_MAJOR_VERSION == 5 && ENGINE_MINOR_VERSION >= 8
+	UChooserTable* Table = LoadChooserFixture();
+	if (!Table || Table->ResultsStructs.Num() != 3 || Table->DisabledRows.Num() != 3 ||
+		Table->ColumnsStructs.Num() != 1 || !Table->ColumnsStructs[0].GetPtr<FChooserNameColumn>()) return false;
+	auto& Cells = Table->ColumnsStructs[0].GetMutable<FChooserNameColumn>().RowValues;
+	if (Cells.Num() != 3) return false;
+	// A disabled match comes first, followed by NotEqual and then Any.
+	Cells.Swap(0, 2);
+	Table->DisabledRows.Swap(0, 2);
+	Table->ResultsStructs.Swap(0, 2);
+	Cells[1].Comparison = ENameColumnCellValueComparison::MatchNotEqual;
+	Cells[2].Comparison = ENameColumnCellValueComparison::MatchAny;
+	Table->MarkPackageDirty();
+	Table->Compile(true);
 	return true;
 #else
 	return false;

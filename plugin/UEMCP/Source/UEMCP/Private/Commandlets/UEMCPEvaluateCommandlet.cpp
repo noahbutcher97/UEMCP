@@ -1,5 +1,6 @@
 // Copyright Noah Butcher. All Rights Reserved.
 #include "UEMCPEvaluateCommandlet.h"
+#include "EvaluationFileHash.h"
 
 #include "Components/SceneComponent.h"
 #include "Dom/JsonObject.h"
@@ -21,30 +22,30 @@ THIRD_PARTY_INCLUDES_START
 #undef UI
 THIRD_PARTY_INCLUDES_END
 
+FString HashEvaluationFile(IFileHandle& File)
+{
+	EVP_MD_CTX* Context = EVP_MD_CTX_new();
+	if (!Context) return {};
+	ON_SCOPE_EXIT { EVP_MD_CTX_free(Context); };
+	if (EVP_DigestInit_ex(Context, EVP_sha256(), nullptr) != 1) return {};
+	int64 Remaining = File.Size();
+	if (Remaining <= 0) return {};
+	TArray<uint8> Buffer;
+	Buffer.SetNumUninitialized(65536);
+	while (Remaining > 0)
+	{
+		const int32 Count = static_cast<int32>(FMath::Min<int64>(Remaining, Buffer.Num()));
+		if (!File.Read(Buffer.GetData(), Count) || EVP_DigestUpdate(Context, Buffer.GetData(), Count) != 1) return {};
+		Remaining -= Count;
+	}
+	uint8 Hash[EVP_MAX_MD_SIZE];
+	unsigned int Size = 0;
+	if (EVP_DigestFinal_ex(Context, Hash, &Size) != 1 || Size != 32) return {};
+	return BytesToHex(Hash, Size).ToLower();
+}
+
 namespace
 {
-	FString HashEvaluationFile(IFileHandle& File)
-	{
-		EVP_MD_CTX* Context = EVP_MD_CTX_new();
-		if (!Context) return {};
-		ON_SCOPE_EXIT { EVP_MD_CTX_free(Context); };
-		if (EVP_DigestInit_ex(Context, EVP_sha256(), nullptr) != 1) return {};
-		int64 Remaining = File.Size();
-		if (Remaining <= 0) return {};
-		TArray<uint8> Buffer;
-		Buffer.SetNumUninitialized(65536);
-		while (Remaining > 0)
-		{
-			const int32 Count = static_cast<int32>(FMath::Min<int64>(Remaining, Buffer.Num()));
-			if (!File.Read(Buffer.GetData(), Count) || EVP_DigestUpdate(Context, Buffer.GetData(), Count) != 1) return {};
-			Remaining -= Count;
-		}
-		uint8 Hash[EVP_MAX_MD_SIZE];
-		unsigned int Size = 0;
-		if (EVP_DigestFinal_ex(Context, Hash, &Size) != 1 || Size != 32) return {};
-		return BytesToHex(Hash, Size).ToLower();
-	}
-
 	UObject* LoadEvaluationAsset(const FString& Package, UClass* Type)
 	{
 		if (!Package.StartsWith(TEXT("/Game/")) || !FPackageName::IsValidLongPackageName(Package)) return nullptr;

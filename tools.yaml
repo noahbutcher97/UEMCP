@@ -106,17 +106,24 @@ toolsets:
     priority: null   # built into Phase 1
     description: Project file analysis and saved evaluation jobs. No interactive editor required.
     tools:
+      list_evaluation_workloads:
+        description: "Discover installed headless evaluation and training workloads for the attached project. Lists each kind, version, input and result schemas, execution mode and prerequisites. Use start_evaluation_job to run one."
+        aliases: ["available workload kinds", "headless physics measurement", "discover training"]
+        params: {}
       start_evaluation_job:
+        strict_arguments: true
         mutates_job: true
-        description: "Start or resume a project-bound job on a saved config and map. Returns a durable job ID immediately. Use player_start_spacing for a headless evaluation of player-start clearance, or train_spacing_policy for bounded PPO. Reuse the same request_id and inputs after a disconnect."
+        description: "Start or resume an installed project workload. List evaluation workloads for available kinds and typed inputs. Returns a durable job ID for polling after reconnect. The legacy flat saved config, map and seed arguments remain supported for spacing and PPO."
         aliases: ["headless evaluation", "run seeded evaluation", "start training"]
         params:
           request_id: { type: string, required: true, description: "Stable caller-chosen identifier (1–80 letters, digits, hyphens or underscores)." }
-          config: { type: string, required: true, description: "Saved /Game DataAsset with a floating Settings.Threshold in metres." }
-          map: { type: string, required: true, description: "Saved /Game map, one persistent level, 2–256 unattached PlayerStarts." }
-          seed: { type: integer, required: true, description: "Nonnegative signed 32-bit integer. Controls evaluation order and training." }
-          kind: { type: string, required: false, description: "player_start_spacing (default) or train_spacing_policy." }
-          steps: { type: integer, required: false, description: "Training only. 32–8192 contextual-bandit steps." }
+          kind: { type: string, required: false, description: "Installed workload kind. Defaults to player_start_spacing." }
+          version: { type: integer, required: false, description: "Require this registered workload version." }
+          inputs: { type: object, required: false, description: "Arguments satisfying the workload's discovered input schema. Omit legacy flat arguments when using inputs." }
+          config: { type: string, required: false, description: "Legacy spacing DataAsset package." }
+          map: { type: string, required: false, description: "Legacy spacing map package." }
+          seed: { type: integer, required: false, description: "Legacy spacing evaluation seed." }
+          steps: { type: integer, required: false, description: "Legacy training step count." }
       get_evaluation_job:
         mutates_job: true
         description: "Poll a durable evaluation or PPO training job after reconnecting to the same project. A poll resumes queued work and reconciles interrupted workers. Reports progress, partial artifacts and terminal state."
@@ -152,6 +159,14 @@ toolsets:
         params:
           asset_path: { type: string, required: true }
           kind: { type: string, enum: [rigvm, chooser], required: true }
+      read_package_inspection:
+        strict_arguments: true
+        description: Read saved RigVM graph nodes, pins and directed links or Chooser row mappings directly from the project's Unreal package with the editor closed. No prior export required. Reports package version, source SHA-256, completeness and issues. For unsaved edits use get_rigvm_graph or get_chooser_table.
+        aliases: ["raw Control Rig topology", "direct saved RigVM pin links", "Chooser rows without export", "first time saved package inspection"]
+        params:
+          asset_path: { type: string, required: true, description: "Exact /Game package name, without extension." }
+          kind: { type: string, enum: [rigvm, chooser], required: true }
+          max_pins: { type: integer, required: false, description: "RigVM only. Pin limit from 1 to 4096." }
       get_asset_info:
         description: Read .uasset header metadata (type, size, class, references). By default strips large blob tags (>1KB). Set verbose:true to return all tags.
         params:
@@ -1351,11 +1366,11 @@ toolsets:
         mutates_level: false
         saves_asset: false
         compiles_asset: false
-        offline_fallback: read_saved_asset_inspection
+        offline_fallback: read_package_inspection
         offline_fallback_scope: partial
-        offline_fallback_note: "Requires a prior export of the same saved bytes. Unsaved graph edits require the live editor."
+        offline_fallback_note: "Read supported saved RigVM models directly from disk. Unsaved graph edits require the live editor. Existing exported snapshots remain available via read_saved_asset_inspection."
         aliases: ["Control Rig pins and links", "RigVM graph topology"]
-        description: Inspect live RigVM models including nested graphs and local function libraries. Read each model node, pin direction and default, and directed link endpoints. Call export_asset_inspection for saved readback.
+        description: Inspect live RigVM models including nested graphs and local function libraries. Read each model node, pin direction and default, and directed link endpoints. Use read_package_inspection for first-time saved readback.
         params:
           asset_path: { type: string, required: true }
           max_pins: { type: integer, required: false, description: "Reject models that exceed this pin count (default 4096)." }
@@ -1676,7 +1691,9 @@ toolsets:
         mutates_level: false
         saves_asset: false
         compiles_asset: false
-        offline_fallback: false
+        offline_fallback: read_package_inspection
+        offline_fallback_scope: partial
+        offline_fallback_note: "Read supported saved row and result types directly from disk. Unsaved table edits require the live editor."
         description: Inspect ordered Chooser rows, name-filter comparisons and bindings, enabled state, asset results and fallback. Unsupported columns or results retain their indices and mark the response partial.
         params:
           asset_path: { type: string, required: true }

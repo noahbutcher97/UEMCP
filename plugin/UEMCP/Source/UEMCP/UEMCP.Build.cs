@@ -34,6 +34,7 @@ public class UEMCP : ModuleRules
 		PrivateDependencyModuleNames.AddRange(new string[]
 		{
 			"UnrealEd",
+			"PhysicsCore",
 			"PhysicsUtilities", // Physics Asset Editor body and joint creation
 			"MaterialEditor", // Typed graph authoring helpers
 			"AssetTools", // Writable-folder permissions for graph insertion

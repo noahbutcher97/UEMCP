@@ -32,6 +32,58 @@ const HAS_BINARY_NATIVE = 0x08;
 const CONTAINER_REASONS = PROPERTY_READ_REASON_GROUPS.containers;
 const STRUCT_LAYOUT_REASONS = PROPERTY_READ_REASON_GROUPS.structLayouts;
 const TAGGED_STREAM_STATE = Symbol('taggedStreamState');
+const INSTANCE_VERSION = 'aa1c1ee25e4247afd46abf89bba8444c';
+export function supportsInstancedStructLayout(summary) {
+  return summary?.fileVersionUE5 === 1018 && summary.customVersions?.some(row =>
+    row.key === INSTANCE_VERSION && row.version === 0) && !(summary.packageFlags & (0x200 | 0x2000 | 0x80000000));
+}
+const INSTANCE_TAGGED_TYPES = new Set([
+  '/Script/CoreUObject.DirectoryPath', '/Script/CoreUObject.FilePath',
+  '/Script/Chooser.ChooserNameColumn', '/Script/Chooser.NameContextProperty',
+  '/Script/Chooser.AssetChooser', '/Script/Chooser.SoftAssetChooser',
+]);
+
+// FInstancedStruct v0 stores the concrete UScriptStruct import and the exact
+// serialized byte count. The concrete type chooses how to serialize its body.
+function readInstance(cur, names, opts) {
+  if (!supportsInstancedStructLayout(opts.summary)) throw new Error('Unsupported instanced struct layout');
+  const index = cur.readInt32();
+  const size = cur.readInt32();
+  if (size < 0 || size > cur.remaining()) throw new Error('Invalid instanced struct size');
+  const start = cur.tell();
+  const payload = new Cursor(cur.buf.subarray(start, start + size));
+  cur.seek(start + size);
+  if (index === 0 && size === 0) return { type: null, value: null };
+  const ref = opts.resolve?.(index);
+  const type = ref?.packagePath ?? null;
+  const unresolved = reason => {
+    const detail = { reason, instance_type: type, size_bytes: size, field_path: opts.fieldPath };
+    opts.instanceIssues?.push({ name: opts.rootProperty, ...detail });
+    return { type, unsupported: true, ...detail };
+  };
+  const imp = opts.imports?.[-index - 1];
+  if (!imp || imp.classPackage !== '/Script/CoreUObject' || imp.className !== 'ScriptStruct' ||
+      !INSTANCE_TAGGED_TYPES.has(type)) return unresolved('unsupported_instance_type');
+  if ((opts.instanceDepth ?? 0) >= 16 || size > 1024 * 1024) return unresolved('instance_limit');
+  const value = readTaggedPropertyStream(payload, size, names, { ...opts, instanceDepth: (opts.instanceDepth ?? 0) + 1 });
+  if (!value.terminated || value.truncated || payload.remaining() !== 0) return unresolved('invalid_instance_payload');
+  return { type, value: value.properties, ...(value.unsupported.length ? { issues: value.unsupported } : {}) };
+}
+
+function isInstanceType(type) {
+  return type?.name === 'InstancedStruct' && type.params?.[0]?.name === '/Script/CoreUObject';
+}
+
+function handleInstancedStruct(cur, tag, names, opts) {
+  if (!isInstanceType(tag.typeParams?.[0]) || !supportsInstancedStructLayout(opts.summary)) {
+    return { __unsupported__: true, reason: 'unsupported_instance_layout' };
+  }
+  return withBoundedContainerCursor(cur, tag, bounded => {
+    const value = readInstance(bounded, names, opts);
+    if (bounded.remaining()) throw new Error('Trailing instanced struct bytes');
+    return value;
+  });
+}
 
 // ── Level 2.5 — simple-element containers (D46) ───────────────────────
 //
@@ -172,6 +224,14 @@ function readArrayElements(cur, outerTag, count, innerTypeParams, names, opts) {
     return elements;
   }
   if (innerTypeName === 'StructProperty') {
+    if (isInstanceType(innerTypeParams[0].params?.[0])) {
+      if (!supportsInstancedStructLayout(opts.summary)) return { __unsupported__: true, reason: 'unsupported_instance_layout' };
+      for (let i = 0; i < count; i++) {
+        elements.push(readInstance(cur, names, { ...opts, fieldPath: opts.fieldPath + '[' + i + ']' }));
+      }
+      if (cur.remaining()) return { __unsupported__: true, reason: 'invalid_instance_array_size' };
+      return elements;
+    }
     const structName = innerTypeParams[0].params?.[0]?.name ?? null;
     if (!structName) {
       return { __unsupported__: true, reason: CONTAINER_REASONS.complexElementContainer, inner_type: '<null>' };
@@ -194,7 +254,7 @@ function readArrayElements(cur, outerTag, count, innerTypeParams, names, opts) {
   }
   if (innerTypeName === 'SoftObjectProperty' || innerTypeName === 'SoftClassProperty') {
     for (let i = 0; i < count; i++) {
-      elements.push({ assetPath: readFNameAtCursor(cur, names), subPath: cur.readFString() });
+      elements.push(readSoftReference(cur, names, opts));
     }
     return elements;
   }
@@ -282,13 +342,15 @@ function readMapPropertyBody(cur, tag, names, opts) {
       if (!valStructName) {
         return { __unsupported__: true, reason: CONTAINER_REASONS.mapValueStructNameMissing };
       }
-      const el = readStructElement(cur, valStructName, tag.flags, names, opts);
+      const el = isInstanceType(valueTypeParams.params?.[0])
+        ? readInstance(cur, names, { ...opts, fieldPath: opts.fieldPath + '[' + i + '].value' })
+        : readStructElement(cur, valStructName, tag.flags, names, opts);
       if (el && el.__unsupported__) {
         return { __unsupported__: true, reason: el.reason, inner_type: el.inner_type };
       }
       value = el;
     } else if (valueType === 'SoftObjectProperty' || valueType === 'SoftClassProperty') {
-      value = { assetPath: readFNameAtCursor(cur, names), subPath: cur.readFString() };
+      value = readSoftReference(cur, names, opts);
     } else {
       return { __unsupported__: true, reason: CONTAINER_REASONS.mapValueTypeUnsupported, detail: valueType };
     }
@@ -670,6 +732,41 @@ function handleFGameplayTagContainer(cur, tag, names, opts) {
 
 // ── Soft-object paths ────────────────────────────────────────────────
 
+const softPathTables = new WeakMap();
+
+function readSoftReference(cur, names, opts) {
+  const summary = opts.summary;
+  if (!summary?.softObjectPathsCount) {
+    return { assetPath: readFNameAtCursor(cur, names), subPath: cur.readFString() };
+  }
+  const index = cur.readInt32();
+  if (!opts.buf || index < 0 || index >= summary.softObjectPathsCount ||
+      summary.softObjectPathsCount > INT_MAX_ELEMENTS) throw new Error('Invalid soft reference index');
+  let paths = softPathTables.get(opts.buf);
+  if (!paths) {
+    const start = summary.softObjectPathsOffset;
+    const end = Math.min(...Object.entries(summary).filter(([k, v]) =>
+      (k.endsWith('Offset') || k === 'totalHeaderSize') && Number.isSafeInteger(v) && v > start
+    ).map(([,v]) => v), opts.buf.length);
+    if (start < 1 || end <= start || summary.softObjectPathsCount > (end - start) / 20) {
+      throw new Error('Invalid soft reference table bounds');
+    }
+    const entries = new Cursor(opts.buf.subarray(start, end));
+    paths = [];
+    for (let i = 0; i < summary.softObjectPathsCount; i++) {
+      const pkg = readFNameAtCursor(entries, names);
+      const asset = readFNameAtCursor(entries, names);
+      const subPath = entries.readFString();
+      if (pkg.startsWith('[bad-') || asset.startsWith('[bad-') || /[^\x00-\x7f]/u.test(subPath)) {
+        throw new Error('Unsupported soft reference table entry');
+      }
+      paths.push({ assetPath: pkg === 'None' ? null : (asset === 'None' ? pkg : pkg + '.' + asset), subPath });
+    }
+    softPathTables.set(opts.buf, paths);
+  }
+  return { ...paths[index] };
+}
+
 function handleFSoftObjectPath(cur, tag, names, opts) {
   // UE 5.1+: FName AssetPath + FString SubPathString. The outer property
   // may appear as StructProperty<SoftObjectPath>, or as SoftObjectProperty
@@ -679,6 +776,9 @@ function handleFSoftObjectPath(cur, tag, names, opts) {
   if (!(tag.flags & HAS_BINARY_NATIVE) && tag.type === 'StructProperty') {
     const f = readTaggedStructFields(cur, tag, names, opts).properties || {};
     return { assetPath: f.AssetPath ?? null, subPath: f.SubPathString ?? '' };
+  }
+  if (opts.summary?.softObjectPathsCount && tag.type !== 'StructProperty') {
+    return readSoftReference(cur, names, opts);
   }
   const assetPath = readFNameAtCursor(cur, names);
   // SubPath is an FString (int32 length + chars). Guard against empty.
@@ -696,6 +796,7 @@ function handleFSoftObjectPath(cur, tag, names, opts) {
  */
 export function buildStructHandlers() {
   return new Map([
+    ['InstancedStruct',   handleInstancedStruct],
     ['Vector',            handleFVector],
     ['Vector2D',          handleFVector2D],
     ['Vector4',           handleFVector4],

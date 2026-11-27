@@ -1095,6 +1095,37 @@ function propertyStreamPrefix(exportEntry) {
  * }}
  */
 export function readExportProperties(buf, exportEntry, names, opts = {}) {
+  if (opts.nativeExportDecoders && exportEntry.classIndex < 0) {
+    const classImport = opts.imports[-exportEntry.classIndex - 1];
+    if (classImport?.className === 'Class' && classImport.classPackage === '/Script/CoreUObject') {
+      const path = opts.resolve(exportEntry.classIndex)?.packagePath;
+      const decoder = opts.nativeExportDecoders.get(path);
+      if (decoder) {
+        const { serialOffset, serialSize } = exportEntry;
+        const failure = (reason, detail) => ({
+          properties: {}, unsupported: [{ name: '__stream__', reason, detail, type: path }],
+          propertyCount: 0, truncated: reason === PARSER_REASONS.sizeBudgetExceeded,
+          terminated: false, bytesConsumed: 0,
+        });
+        if (!Number.isSafeInteger(serialOffset) || !Number.isSafeInteger(serialSize) ||
+            serialOffset < 0 || serialSize < 0 || serialSize > buf.length - serialOffset) {
+          return failure(PARSER_REASONS.serialRangeOutOfBounds, 'Invalid native export span');
+        }
+        if (serialSize > (opts.maxBytes ?? Infinity)) {
+          return failure(PARSER_REASONS.sizeBudgetExceeded, 'Native export exceeds requested byte budget');
+        }
+        const payload = new Cursor(buf.subarray(serialOffset, serialOffset + serialSize));
+        try {
+          const properties = decoder(payload, opts);
+          if (payload.remaining()) throw new Error('Unconsumed native export bytes');
+          return { properties, unsupported: [], propertyCount: Object.keys(properties).length,
+            truncated: false, terminated: true, bytesConsumed: payload.tell() };
+        } catch (err) {
+          return failure(PARSER_REASONS.valueReadFailed, err.message);
+        }
+      }
+    }
+  }
   const cur = new Cursor(buf);
   // UE records the tagged-property region's bounds in the export entry from
   // SCRIPT_SERIALIZATION_OFFSET (1010) onward, RELATIVE to serialOffset. When
@@ -1174,7 +1205,7 @@ export function readTaggedPropertyStream(cur, endOffset, names, opts = {}) {
 
     const valueStart = cur.tell();
     const valueEnd = valueStart + tag.size;
-    if (valueEnd > endOffset) {
+    if (tag.size < 0 || valueEnd > endOffset) {
       unsupported.push({ name: tag.name, reason: PARSER_REASONS.valueOverrunsSerial, type: tag.type, size_bytes: tag.size });
       break;
     }
@@ -1198,7 +1229,11 @@ export function readTaggedPropertyStream(cur, endOffset, names, opts = {}) {
       unsupportedMarker = { reason: PARSER_REASONS.propertyTagExtensions };
     } else {
       try {
-        value = dispatchPropertyValue(cur, tag, names, opts);
+        const fieldPath = opts.fieldPath ? opts.fieldPath + '.' + tag.name : tag.name;
+        value = dispatchPropertyValue(cur, tag, names, {
+          ...opts, fieldPath, rootProperty: opts.rootProperty ?? tag.name,
+          instanceIssues: opts.instanceIssues ?? unsupported,
+        });
         if (value && value.__unsupported__) {
           isUnsupported = true;
           // Carry forward any detail fields (struct_name, inner_type, detail, etc.)
@@ -1265,6 +1300,9 @@ function dispatchPropertyValue(cur, tag, names, opts) {
     if (!(tag.flags & PTAG_BINARY_OR_NATIVE_SER) && tag.size > 0) {
       const endOffset = cur.tell() + tag.size;
       const sub = readTaggedPropertyStream(cur, endOffset, names, opts);
+      if (opts.instanceDepth && (!sub.terminated || sub.unsupported.length || sub.truncated)) {
+        return { __unsupported__: true, reason: 'incomplete_instance_field', struct_name: structName };
+      }
       if (opts.resolvedUnknownStructs && structName) opts.resolvedUnknownStructs.add(structName);
       return sub.properties;
     }

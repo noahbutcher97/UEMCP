@@ -19,7 +19,7 @@ async function plainDirectory(parent, part, create) {
   return dir;
 }
 
-async function locations(projectRoot, { asset_path: assetPath, kind }, create = false) {
+async function sourceLocation(projectRoot, { asset_path: assetPath, kind }) {
   if (!projectRoot || !kinds.has(kind)) throw new Error('Attach a project and choose inspection kind rigvm or chooser');
   if (typeof assetPath !== 'string' || assetPath.length > 512 || !/^\/Game\/(?:[\p{L}\p{N}_-]+\/)*[\p{L}\p{N}_-]+$/u.test(assetPath)) {
     throw new Error('Supply the exact /Game package name without an extension or object suffix');
@@ -30,9 +30,14 @@ async function locations(projectRoot, { asset_path: assetPath, kind }, create = 
   let content = await plainDirectory(root, 'Content', false);
   for (const part of parts) content = await plainDirectory(content, part, false);
   const source = join(content, name + '.uasset');
+  return { root, source };
+}
+
+async function locations(projectRoot, args, create = false) {
+  const { root, source } = await sourceLocation(projectRoot, args);
   let directory = root;
   for (const part of ['Saved', 'UEMCP', 'Inspections']) directory = await plainDirectory(directory, part, create);
-  return { source, snapshot: join(directory, sha256(kind + '\n' + assetPath) + '.json') };
+  return { source, snapshot: join(directory, sha256(args.kind + '\n' + args.asset_path) + '.json') };
 }
 
 async function readBounded(path, maxBytes) {
@@ -50,9 +55,22 @@ async function readBounded(path, maxBytes) {
       offset += bytesRead;
     }
     const after = await handle.stat();
-    if (after.size !== current.size || after.mtimeMs !== current.mtimeMs) throw new Error('Inspection file changed while reading');
+    const named = await lstat(path);
+    if (after.size !== current.size || after.mtimeMs !== current.mtimeMs || named.ino !== current.ino || named.dev !== current.dev ||
+        named.size !== after.size || named.mtimeMs !== after.mtimeMs) throw new Error('Inspection file changed while reading');
     return bytes;
   } finally { await handle.close(); }
+}
+
+export async function readInspectionSource(projectRoot, args) {
+  const { source } = await sourceLocation(projectRoot, args);
+  if (await realpath(source) !== source) throw new Error('Supply the exact saved package path and casing.');
+  const sidecar = source.slice(0, -7) + '.uexp';
+  try {
+    await lstat(sidecar);
+    throw new Error('Split export data is unsupported for direct package inspection.');
+  } catch (error) { if (error.code !== 'ENOENT') throw error; }
+  return readBounded(source, maxSourceBytes);
 }
 
 function validPayload(data, args) {

@@ -61,12 +61,16 @@ export {
 
 import { readSavedInspection } from './saved-inspection-snapshot.mjs';
 
-export async function executeOfflineTool(toolName, params, projectRoot, readLiveBlueprintPins) {
+export async function executeOfflineTool(toolName, params, projectRoot, readLiveBlueprintPins, checkAttachment) {
   if (!projectRoot) {
     throw new Error('Project root not configured — offline tools require an attached project path');
   }
 
   switch (toolName) {
+    case 'read_package_inspection': {
+      const { readPackageInspection } = await import('./raw-package-inspection.mjs');
+      return readPackageInspection(projectRoot, params, checkAttachment);
+    }
     case 'read_saved_asset_inspection':
       return readSavedInspection(projectRoot, params);
 

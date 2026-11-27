@@ -23,6 +23,7 @@ import {
   buildContainerHandlers,
 } from './uasset-structs.mjs';
 import { REQUIRED_CONTAINER_PROPERTY_TYPES } from './property-read-contract.mjs';
+import { nativeExportDecoders } from './native-export-decoders.mjs';
 
 export function buildPropertyReadHandlers() {
   const structHandlers = buildStructHandlers();
@@ -300,6 +301,10 @@ export async function parseAssetForPropertyRead(projectRoot, assetPath) {
   const diskPath = resolveAssetDiskPath(projectRoot, assetPath);
   const stats = await stat(diskPath);
   const buf = await readFile(diskPath);
+  return { diskPath, stats, ...parsePropertyReadBuffer(buf) };
+}
+
+export function parsePropertyReadBuffer(buf) {
   const cur = new Cursor(buf);
   const summary = parseSummary(cur);
   const names = readNameTable(cur, summary);
@@ -310,7 +315,7 @@ export async function parseAssetForPropertyRead(projectRoot, assetPath) {
   // project can be almost entirely pre-1012 content.
   const tagLayout = propertyTagLayoutForPackage(summary);
   return {
-    diskPath, stats, buf, summary, names, imports, exports, ...tagLayout,
+    buf, summary, names, imports, exports, ...tagLayout, nativeExportDecoders,
     resolve: makePackageIndexResolver(exports, imports),
     ...handlers,
   };
