@@ -19,7 +19,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
         project: realpathSync(project), output: resolve(output), signal: controller.signal,
         checkCancellation() { controller.signal.throwIfAborted(); },
       });
-      console.log(JSON.stringify(evaluation));
+      process.stdout.write(`${JSON.stringify(evaluation)}\n`);
     } catch (error) { console.error(error.message); process.exitCode = 1; }
   }
 }

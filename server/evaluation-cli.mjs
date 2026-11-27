@@ -10,7 +10,7 @@ node evaluation-cli.mjs run PROJECT.uproject KIND INPUTS_JSON NEW_OUTPUT_DIRECTO
 Use list to discover the installed kinds and their argument schemas.`;
 
 async function main([action, file, ...rest]) {
-  if (!action || action === '--help') { console.log(usage); return; }
+  if (!action || action === '--help') { process.stdout.write(`${usage}\n`); return; }
   if (!file) throw new Error(usage);
   const project = realpathSync(file);
   let result;
@@ -44,7 +44,7 @@ async function main([action, file, ...rest]) {
       }
     }
   } else throw new Error(usage);
-  console.log(JSON.stringify(result));
+  process.stdout.write(`${JSON.stringify(result)}\n`);
 }
 
 try { await main(process.argv.slice(2)); }
