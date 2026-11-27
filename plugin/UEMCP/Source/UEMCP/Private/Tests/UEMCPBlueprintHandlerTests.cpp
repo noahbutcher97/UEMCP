@@ -83,52 +83,69 @@ namespace UEMCP::Blueprint::Tests
 	/** Package root for fixture Blueprints. Unique leaf per call; ordinarily unsaved. */
 	static const TCHAR* FixtureRoot = TEXT("/Game/__UEMCPTests");
 
+	/** Install fixture history only between editor transactions. */
+	bool HasIdleEditorHistory(FAutomationTestBase& Test)
+	{
+		return Test.TestTrue(TEXT("Idle editor history"),
+			GEditor && GEditor->Trans && !GEditor->Trans->IsActive() && !GUndo);
+	}
+
+	/** One unsaved package and its private Undo history, including partial setup and early returns. */
 	struct FFixtureBlueprint
 	{
+		TStrongObjectPtr<UTransactor> EditorHistory{GEditor->Trans.Get()};
+		TStrongObjectPtr<UTransBuffer> History{NewObject<UTransBuffer>()};
+		TGuardValue<decltype(GEditor->Trans)> UseHistory{GEditor->Trans, History.Get()};
 		UBlueprint* Blueprint = nullptr;
 		UPackage* Package = nullptr;
-		/** What blueprint_name receives. Package form; the resolver strips any .Object suffix. */
 		FString PackagePath;
+
+		// Some tests create the Blueprint through a handler or an animation factory.
+		FFixtureBlueprint()
+		{
+			History->Initialize(8 * 1024 * 1024);
+		}
+
+		explicit FFixtureBlueprint(UClass* ParentClass, EBlueprintType BlueprintType = BPTYPE_Normal)
+			: FFixtureBlueprint()
+		{
+			const FString Leaf = FString::Printf(TEXT("BP_UEMCPFixture_%s"),
+				*FGuid::NewGuid().ToString(EGuidFormats::Short));
+			PackagePath = FString::Printf(TEXT("%s/%s"), FixtureRoot, *Leaf);
+			Package = CreatePackage(*PackagePath);
+			if (Package)
+			{
+				Blueprint = FKismetEditorUtilities::CreateBlueprint(ParentClass, Package, FName(*Leaf),
+					BlueprintType, UBlueprint::StaticClass(), UBlueprintGeneratedClass::StaticClass());
+				if (Blueprint) FAssetRegistryModule::AssetCreated(Blueprint);
+			}
+		}
+
+		FFixtureBlueprint(const FFixtureBlueprint&) = delete;
+		FFixtureBlueprint& operator=(const FFixtureBlueprint&) = delete;
+
+		~FFixtureBlueprint()
+		{
+			History->Reset(NSLOCTEXT("UEMCPTests", "BlueprintFixtureCleanup", "Release Blueprint fixture transactions"));
+			if (Blueprint)
+			{
+				FAssetRegistryModule::AssetDeleted(Blueprint);
+				Blueprint->ClearFlags(RF_Public | RF_Standalone);
+			}
+			if (Package)
+			{
+				Package->SetDirtyFlag(false);
+				Package->ClearFlags(RF_Standalone);
+				// Package metadata and generated objects can independently have RF_Standalone.
+				ForEachObjectWithPackage(Package, [](UObject* Object)
+				{
+					Object->ClearFlags(RF_Standalone);
+					return true;
+				});
+				CollectGarbage(GARBAGE_COLLECTION_KEEPFLAGS);
+			}
+		}
 	};
-
-	/**
-	 * Blueprint of the given parent class and type, in a fresh in-memory package.
-	 * The object name equals the package leaf — see the file header for why that is
-	 * load-bearing. The type matters to more than the parent class: only
-	 * BPTYPE_Normal and BPTYPE_LevelScript get an EventGraph
-	 * (FBlueprintEditorUtils::DoesSupportEventGraphs), which is how a fixture with
-	 * no event graph is built.
-	 */
-	FFixtureBlueprint CreateFixtureBlueprintOfType(UClass* ParentClass, EBlueprintType BlueprintType)
-	{
-		FFixtureBlueprint Fixture;
-		const FString Leaf = FString::Printf(TEXT("BP_UEMCPFixture_%s"),
-			*FGuid::NewGuid().ToString(EGuidFormats::Short));
-		Fixture.PackagePath = FString::Printf(TEXT("%s/%s"), FixtureRoot, *Leaf);
-		Fixture.Package = CreatePackage(*Fixture.PackagePath);
-		if (!Fixture.Package)
-		{
-			return Fixture;
-		}
-		Fixture.Blueprint = FKismetEditorUtilities::CreateBlueprint(
-			ParentClass,
-			Fixture.Package,
-			FName(*Leaf),
-			BlueprintType,
-			UBlueprint::StaticClass(),
-			UBlueprintGeneratedClass::StaticClass());
-		if (Fixture.Blueprint)
-		{
-			FAssetRegistryModule::AssetCreated(Fixture.Blueprint);
-		}
-		return Fixture;
-	}
-
-	/** Actor-parented Blueprint with an EventGraph — what every test but one wants. */
-	FFixtureBlueprint CreateFixtureBlueprint()
-	{
-		return CreateFixtureBlueprintOfType(AActor::StaticClass(), BPTYPE_Normal);
-	}
 
 	/** Member variable of the given pin category; mirrors add_blueprint_variable. */
 	void AddFixtureVariable(UBlueprint* Blueprint, const FString& VarName, FName Category, FName SubCategory = NAME_None)
@@ -141,31 +158,6 @@ namespace UEMCP::Blueprint::Tests
 		PinType.PinCategory = Category;
 		PinType.PinSubCategory = SubCategory;
 		FBlueprintEditorUtils::AddMemberVariable(Blueprint, FName(*VarName), PinType);
-	}
-
-	/**
-	 * Best-effort teardown. Isolation comes from the unique package leaf, not
-	 * from collection: the AssetRegistry entry or an undo record may still hold
-	 * a reference, so no test asserts the object is gone. RF_Standalone is
-	 * cleared first, and MarkAsGarbage check()s that the object is not rooted.
-	 */
-	void DestroyFixtureBlueprint(FFixtureBlueprint& Fixture)
-	{
-		if (Fixture.Blueprint)
-		{
-			FAssetRegistryModule::AssetDeleted(Fixture.Blueprint);
-			Fixture.Blueprint->ClearFlags(RF_Public | RF_Standalone);
-			Fixture.Blueprint->MarkAsGarbage();
-			Fixture.Blueprint = nullptr;
-		}
-		if (Fixture.Package)
-		{
-			Fixture.Package->SetDirtyFlag(false);
-			Fixture.Package->ClearFlags(RF_Public | RF_Standalone);
-			Fixture.Package->MarkAsGarbage();
-			Fixture.Package = nullptr;
-		}
-		CollectGarbage(GARBAGE_COLLECTION_KEEPFLAGS);
 	}
 
 	/** One command through the registry the plugin populates at startup. */
@@ -347,12 +339,12 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 bool FUEMCPBlueprintHandlersAddVariableAssignmentTest::RunTest(const FString& Parameters)
 {
 	using namespace UEMCP::Blueprint::Tests;
+	if (!HasIdleEditorHistory(*this)) return false;
 
-	FFixtureBlueprint Fixture = CreateFixtureBlueprint();
+	FFixtureBlueprint Fixture(AActor::StaticClass());
 	if (!Fixture.Blueprint)
 	{
 		AddError(TEXT("fixture Blueprint was not created"));
-		DestroyFixtureBlueprint(Fixture);
 		return false;
 	}
 	AddFixtureVariable(Fixture.Blueprint, TEXT("Score"), UEdGraphSchema_K2::PC_Int);
@@ -376,7 +368,6 @@ bool FUEMCPBlueprintHandlersAddVariableAssignmentTest::RunTest(const FString& Pa
 	if (!IsSuccess(Response, Code))
 	{
 		AddError(FString::Printf(TEXT("literal assignment failed with code '%s'"), *Code));
-		DestroyFixtureBlueprint(Fixture);
 		return false;
 	}
 
@@ -409,7 +400,6 @@ bool FUEMCPBlueprintHandlersAddVariableAssignmentTest::RunTest(const FString& Pa
 	if (!SetNode)
 	{
 		AddError(TEXT("the reported node_id was not found in the event graph"));
-		DestroyFixtureBlueprint(Fixture);
 		return false;
 	}
 	TestEqual(TEXT("set node targets Score"), SetNode->VariableReference.GetMemberName(), FName(TEXT("Score")));
@@ -418,7 +408,6 @@ bool FUEMCPBlueprintHandlersAddVariableAssignmentTest::RunTest(const FString& Pa
 	if (!ScorePin)
 	{
 		AddError(TEXT("the variable-set node has no Score input pin"));
-		DestroyFixtureBlueprint(Fixture);
 		return false;
 	}
 	TestEqual(TEXT("pin default written in the graph"), ScorePin->DefaultValue, FString(TEXT("5")));
@@ -492,7 +481,6 @@ bool FUEMCPBlueprintHandlersAddVariableAssignmentTest::RunTest(const FString& Pa
 		ErrorCodeOf(Dispatch(TEXT("add_blueprint_variable_assignment"), BadBlueprint)),
 		FString(TEXT("BLUEPRINT_NOT_FOUND")));
 
-	DestroyFixtureBlueprint(Fixture);
 	return true;
 }
 
@@ -511,12 +499,12 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 bool FUEMCPBlueprintHandlersAddTimerTest::RunTest(const FString& Parameters)
 {
 	using namespace UEMCP::Blueprint::Tests;
+	if (!HasIdleEditorHistory(*this)) return false;
 
-	FFixtureBlueprint Fixture = CreateFixtureBlueprint();
+	FFixtureBlueprint Fixture(AActor::StaticClass());
 	if (!Fixture.Blueprint)
 	{
 		AddError(TEXT("fixture Blueprint was not created"));
-		DestroyFixtureBlueprint(Fixture);
 		return false;
 	}
 
@@ -537,7 +525,6 @@ bool FUEMCPBlueprintHandlersAddTimerTest::RunTest(const FString& Parameters)
 	if (!IsSuccess(Response, Code))
 	{
 		AddError(FString::Printf(TEXT("add_blueprint_timer failed with code '%s'"), *Code));
-		DestroyFixtureBlueprint(Fixture);
 		return false;
 	}
 
@@ -574,7 +561,6 @@ bool FUEMCPBlueprintHandlersAddTimerTest::RunTest(const FString& Parameters)
 	if (!TimerNode || !BeginPlayNode)
 	{
 		AddError(TEXT("a reported node id did not resolve to a node of that class in the event graph"));
-		DestroyFixtureBlueprint(Fixture);
 		return false;
 	}
 	TestEqual(TEXT("timer node calls K2_SetTimer"),
@@ -588,7 +574,6 @@ bool FUEMCPBlueprintHandlersAddTimerTest::RunTest(const FString& Parameters)
 	if (!FunctionNamePin || !TimePin || !LoopingPin)
 	{
 		AddError(TEXT("K2_SetTimer node is missing one of the FunctionName / Time / bLooping input pins"));
-		DestroyFixtureBlueprint(Fixture);
 		return false;
 	}
 	TestEqual(TEXT("FunctionName default"), FunctionNamePin->DefaultValue, CallbackName);
@@ -600,7 +585,6 @@ bool FUEMCPBlueprintHandlersAddTimerTest::RunTest(const FString& Parameters)
 	if (!ThenPin || !ExecutePin)
 	{
 		AddError(TEXT("exec pins not found on the begin-play or timer node"));
-		DestroyFixtureBlueprint(Fixture);
 		return false;
 	}
 	TestTrue(TEXT("begin play then links to the timer execute pin"), ThenPin->LinkedTo.Contains(ExecutePin));
@@ -654,7 +638,6 @@ bool FUEMCPBlueprintHandlersAddTimerTest::RunTest(const FString& Parameters)
 		ErrorCodeOf(Dispatch(TEXT("add_blueprint_timer"), NoCreate)),
 		FString(TEXT("CALLBACK_GRAPH_NOT_FOUND")));
 
-	DestroyFixtureBlueprint(Fixture);
 	return true;
 }
 
@@ -673,12 +656,12 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 bool FUEMCPBlueprintHandlersDisconnectPinTest::RunTest(const FString& Parameters)
 {
 	using namespace UEMCP::Blueprint::Tests;
+	if (!HasIdleEditorHistory(*this)) return false;
 
-	FFixtureBlueprint Fixture = CreateFixtureBlueprint();
+	FFixtureBlueprint Fixture(AActor::StaticClass());
 	if (!Fixture.Blueprint)
 	{
 		AddError(TEXT("fixture Blueprint was not created"));
-		DestroyFixtureBlueprint(Fixture);
 		return false;
 	}
 
@@ -695,7 +678,6 @@ bool FUEMCPBlueprintHandlersDisconnectPinTest::RunTest(const FString& Parameters
 	if (!IsSuccess(TimerResponse, Code))
 	{
 		AddError(FString::Printf(TEXT("arrange step failed: add_blueprint_timer returned '%s'"), *Code));
-		DestroyFixtureBlueprint(Fixture);
 		return false;
 	}
 	const TSharedPtr<FJsonObject> TimerResult = ResultOf(TimerResponse);
@@ -704,7 +686,6 @@ bool FUEMCPBlueprintHandlersDisconnectPinTest::RunTest(const FString& Parameters
 	if (BeginPlayId.IsEmpty() || TimerNodeId.IsEmpty())
 	{
 		AddError(TEXT("arrange step produced no begin-play or timer node id"));
-		DestroyFixtureBlueprint(Fixture);
 		return false;
 	}
 
@@ -716,7 +697,6 @@ bool FUEMCPBlueprintHandlersDisconnectPinTest::RunTest(const FString& Parameters
 	if (!ThenPin || !ExecutePin || !ThenPin->LinkedTo.Contains(ExecutePin))
 	{
 		AddError(TEXT("arrange step did not link begin play then to the timer execute pin"));
-		DestroyFixtureBlueprint(Fixture);
 		return false;
 	}
 
@@ -744,7 +724,6 @@ bool FUEMCPBlueprintHandlersDisconnectPinTest::RunTest(const FString& Parameters
 	if (!IsSuccess(DryResponse, Code))
 	{
 		AddError(FString::Printf(TEXT("dry-run disconnect failed with code '%s'"), *Code));
-		DestroyFixtureBlueprint(Fixture);
 		return false;
 	}
 	const TSharedPtr<FJsonObject> DryResult = ResultOf(DryResponse);
@@ -761,7 +740,6 @@ bool FUEMCPBlueprintHandlersDisconnectPinTest::RunTest(const FString& Parameters
 	if (!IsSuccess(BreakResponse, Code))
 	{
 		AddError(FString::Printf(TEXT("disconnect failed with code '%s'"), *Code));
-		DestroyFixtureBlueprint(Fixture);
 		return false;
 	}
 	const TSharedPtr<FJsonObject> BreakResult = ResultOf(BreakResponse);
@@ -821,7 +799,6 @@ bool FUEMCPBlueprintHandlersDisconnectPinTest::RunTest(const FString& Parameters
 	if (!ThenPinAfterBreak || !ExecutePinAfterBreak)
 	{
 		AddError(TEXT("could not re-resolve then/execute pins after the targeted break"));
-		DestroyFixtureBlueprint(Fixture);
 		return false;
 	}
 	TestFalse(TEXT("link removed from the graph"), ThenPinAfterBreak->LinkedTo.Contains(ExecutePinAfterBreak));
@@ -878,7 +855,6 @@ bool FUEMCPBlueprintHandlersDisconnectPinTest::RunTest(const FString& Parameters
 	if (!IsSuccess(TimerTwoResponse, Code))
 	{
 		AddError(FString::Printf(TEXT("second arrange step failed: add_blueprint_timer returned '%s'"), *Code));
-		DestroyFixtureBlueprint(Fixture);
 		return false;
 	}
 	const TSharedPtr<FJsonObject> TimerTwoResult = ResultOf(TimerTwoResponse);
@@ -886,7 +862,6 @@ bool FUEMCPBlueprintHandlersDisconnectPinTest::RunTest(const FString& Parameters
 	if (TimerTwoNodeId.IsEmpty() || StringFieldOr(TimerTwoResult, TEXT("begin_play_node_id")) != BeginPlayId)
 	{
 		AddError(TEXT("second arrange step did not reuse BeginPlay or produced no timer node id"));
-		DestroyFixtureBlueprint(Fixture);
 		return false;
 	}
 
@@ -896,7 +871,6 @@ bool FUEMCPBlueprintHandlersDisconnectPinTest::RunTest(const FString& Parameters
 	if (!ThenPinBeforeUntargeted || !ExecuteTwoPin || !ThenPinBeforeUntargeted->LinkedTo.Contains(ExecuteTwoPin))
 	{
 		AddError(TEXT("second arrange step did not link begin play then to the new timer execute pin"));
-		DestroyFixtureBlueprint(Fixture);
 		return false;
 	}
 
@@ -915,7 +889,6 @@ bool FUEMCPBlueprintHandlersDisconnectPinTest::RunTest(const FString& Parameters
 	if (!IsSuccess(UntargetedResponse, Code))
 	{
 		AddError(FString::Printf(TEXT("untargeted disconnect failed with code '%s'"), *Code));
-		DestroyFixtureBlueprint(Fixture);
 		return false;
 	}
 	const TSharedPtr<FJsonObject> UntargetedResult = ResultOf(UntargetedResponse);
@@ -930,13 +903,11 @@ bool FUEMCPBlueprintHandlersDisconnectPinTest::RunTest(const FString& Parameters
 	if (!ThenPinAfterUntargeted || !ExecuteTwoPinAfterUntargeted)
 	{
 		AddError(TEXT("could not re-resolve then/execute pins after the untargeted break"));
-		DestroyFixtureBlueprint(Fixture);
 		return false;
 	}
 	TestEqual(TEXT("then pin has no links after untargeted break"), ThenPinAfterUntargeted->LinkedTo.Num(), 0);
 	TestEqual(TEXT("new timer execute pin has no links after untargeted break"), ExecuteTwoPinAfterUntargeted->LinkedTo.Num(), 0);
 
-	DestroyFixtureBlueprint(Fixture);
 	return true;
 }
 
@@ -955,12 +926,12 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 bool FUEMCPBlueprintHandlersAssignmentVariableKindTest::RunTest(const FString& Parameters)
 {
 	using namespace UEMCP::Blueprint::Tests;
+	if (!HasIdleEditorHistory(*this)) return false;
 
-	FFixtureBlueprint Fixture = CreateFixtureBlueprint();
+	FFixtureBlueprint Fixture(AActor::StaticClass());
 	if (!Fixture.Blueprint)
 	{
 		AddError(TEXT("fixture Blueprint was not created"));
-		DestroyFixtureBlueprint(Fixture);
 		return false;
 	}
 	AddFixtureVariable(Fixture.Blueprint, TEXT("Score"), UEdGraphSchema_K2::PC_Int);
@@ -984,7 +955,6 @@ bool FUEMCPBlueprintHandlersAssignmentVariableKindTest::RunTest(const FString& P
 	if (!IsSuccess(Response, Code))
 	{
 		AddError(FString::Printf(TEXT("variable assignment failed with code '%s'"), *Code));
-		DestroyFixtureBlueprint(Fixture);
 		return false;
 	}
 
@@ -1044,7 +1014,6 @@ bool FUEMCPBlueprintHandlersAssignmentVariableKindTest::RunTest(const FString& P
 	if (!GetNode || !SetNode)
 	{
 		AddError(TEXT("a reported node id did not resolve to a node of that class in the event graph"));
-		DestroyFixtureBlueprint(Fixture);
 		return false;
 	}
 	TestEqual(TEXT("get node reads SourceScore"), GetNode->VariableReference.GetMemberName(), FName(TEXT("SourceScore")));
@@ -1055,7 +1024,6 @@ bool FUEMCPBlueprintHandlersAssignmentVariableKindTest::RunTest(const FString& P
 	if (!SourcePin || !TargetPin)
 	{
 		AddError(TEXT("the get or set node is missing its value pin"));
-		DestroyFixtureBlueprint(Fixture);
 		return false;
 	}
 	TestTrue(TEXT("the get output links to the set input"), SourcePin->LinkedTo.Contains(TargetPin));
@@ -1090,7 +1058,6 @@ bool FUEMCPBlueprintHandlersAssignmentVariableKindTest::RunTest(const FString& P
 		ErrorCodeOf(Dispatch(TEXT("add_blueprint_variable_assignment"), BadSourceParams)),
 		FString(TEXT("VARIABLE_NOT_FOUND")));
 
-	DestroyFixtureBlueprint(Fixture);
 	return true;
 }
 
@@ -1115,12 +1082,24 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 bool FUEMCPBlueprintHandlersAssignmentExecFromTest::RunTest(const FString& Parameters)
 {
 	using namespace UEMCP::Blueprint::Tests;
+	if (!HasIdleEditorHistory(*this)) return false;
 
-	FFixtureBlueprint Fixture = CreateFixtureBlueprint();
+	TStrongObjectPtr<UTransactor> CallerHistory(GEditor->Trans.Get());
+	const int32 PreviousQueueLength = CallerHistory->GetQueueLength();
+	const int32 PreviousUndoCount = CallerHistory->GetUndoCount();
+	TWeakObjectPtr<UBlueprint> RetiredBlueprint;
+	ON_SCOPE_EXIT
+	{
+		TestTrue(TEXT("Assignment restored the caller history"), GEditor->Trans.Get() == CallerHistory.Get());
+		TestEqual(TEXT("Assignment preserved the caller Undo queue"), CallerHistory->GetQueueLength(), PreviousQueueLength);
+		TestEqual(TEXT("Assignment preserved the caller Undo cursor"), CallerHistory->GetUndoCount(), PreviousUndoCount);
+		TestFalse(TEXT("Collection released the assignment Blueprint"), RetiredBlueprint.IsValid());
+	};
+	FFixtureBlueprint Fixture(AActor::StaticClass());
+	RetiredBlueprint = Fixture.Blueprint;
 	if (!Fixture.Blueprint)
 	{
 		AddError(TEXT("fixture Blueprint was not created"));
-		DestroyFixtureBlueprint(Fixture);
 		return false;
 	}
 	AddFixtureVariable(Fixture.Blueprint, TEXT("Score"), UEdGraphSchema_K2::PC_Int);
@@ -1140,7 +1119,6 @@ bool FUEMCPBlueprintHandlersAssignmentExecFromTest::RunTest(const FString& Param
 	if (!IsSuccess(FuncResponse, Code))
 	{
 		AddError(FString::Printf(TEXT("arrange step failed: add_blueprint_function_node returned '%s'"), *Code));
-		DestroyFixtureBlueprint(Fixture);
 		return false;
 	}
 	const TSharedPtr<FJsonObject> FuncResult = ResultOf(FuncResponse);
@@ -1149,7 +1127,6 @@ bool FUEMCPBlueprintHandlersAssignmentExecFromTest::RunTest(const FString& Param
 	if (FuncNodeId.IsEmpty())
 	{
 		AddError(TEXT("arrange step produced no node id"));
-		DestroyFixtureBlueprint(Fixture);
 		return false;
 	}
 
@@ -1160,7 +1137,6 @@ bool FUEMCPBlueprintHandlersAssignmentExecFromTest::RunTest(const FString& Param
 	if (!FuncNode || !ClassPin || !ThenPin)
 	{
 		AddError(TEXT("the arranged call node is missing its ActorClassFilter or then pin"));
-		DestroyFixtureBlueprint(Fixture);
 		return false;
 	}
 
@@ -1198,7 +1174,6 @@ bool FUEMCPBlueprintHandlersAssignmentExecFromTest::RunTest(const FString& Param
 	if (!IsSuccess(Response, Code))
 	{
 		AddError(FString::Printf(TEXT("assignment with exec_from failed with code '%s'"), *Code));
-		DestroyFixtureBlueprint(Fixture);
 		return false;
 	}
 	const TSharedPtr<FJsonObject> Result = ResultOf(Response);
@@ -1239,7 +1214,6 @@ bool FUEMCPBlueprintHandlersAssignmentExecFromTest::RunTest(const FString& Param
 	if (!SetNode || !ExecutePin)
 	{
 		AddError(TEXT("the reported set node id did not resolve, or it has no execute pin"));
-		DestroyFixtureBlueprint(Fixture);
 		return false;
 	}
 	TestTrue(TEXT("the call node's then pin links to the set node's execute pin"), ThenPin->LinkedTo.Contains(ExecutePin));
@@ -1272,7 +1246,11 @@ bool FUEMCPBlueprintHandlersAssignmentExecFromTest::RunTest(const FString& Param
 		ErrorCodeOf(Dispatch(TEXT("add_blueprint_variable_assignment"), MissingExecParams)),
 		FString(TEXT("NODE_NOT_FOUND")));
 
-	DestroyFixtureBlueprint(Fixture);
+	for (UObject* Edited : TArray<UObject*>{Fixture.Blueprint, EventGraph, FuncNode, SetNode})
+	{
+		TestTrue(TEXT("Assignment edit belongs to the fixture history"), Fixture.History->IsObjectInTransactionBuffer(Edited));
+		TestFalse(TEXT("Assignment did not record the object in caller history"), CallerHistory->IsObjectInTransactionBuffer(Edited));
+	}
 	return true;
 }
 
@@ -1290,12 +1268,12 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 bool FUEMCPBlueprintHandlersDisconnectPinEdgesTest::RunTest(const FString& Parameters)
 {
 	using namespace UEMCP::Blueprint::Tests;
+	if (!HasIdleEditorHistory(*this)) return false;
 
-	FFixtureBlueprint Fixture = CreateFixtureBlueprint();
+	FFixtureBlueprint Fixture(AActor::StaticClass());
 	if (!Fixture.Blueprint)
 	{
 		AddError(TEXT("fixture Blueprint was not created"));
-		DestroyFixtureBlueprint(Fixture);
 		return false;
 	}
 
@@ -1321,14 +1299,12 @@ bool FUEMCPBlueprintHandlersDisconnectPinEdgesTest::RunTest(const FString& Param
 		AddError(FString::Printf(
 			TEXT("arrange failed: no set node for a member variable named 'then' (code '%s'); see the fallback in this test's plan step"),
 			*Code));
-		DestroyFixtureBlueprint(Fixture);
 		return false;
 	}
 	const FString ThenSetNodeId = StringFieldOr(FindRole(ResultOf(ThenResponse), TEXT("nodes"), TEXT("set")), TEXT("node_id"));
 	if (ThenSetNodeId.IsEmpty())
 	{
 		AddError(TEXT("arrange step produced no set node id"));
-		DestroyFixtureBlueprint(Fixture);
 		return false;
 	}
 
@@ -1357,7 +1333,6 @@ bool FUEMCPBlueprintHandlersDisconnectPinEdgesTest::RunTest(const FString& Param
 	if (!IsSuccess(DisambiguatedResponse, Code))
 	{
 		AddError(FString::Printf(TEXT("the disambiguated dry run failed with code '%s'"), *Code));
-		DestroyFixtureBlueprint(Fixture);
 		return false;
 	}
 	const TSharedPtr<FJsonObject> DisambiguatedResult = ResultOf(DisambiguatedResponse);
@@ -1379,7 +1354,6 @@ bool FUEMCPBlueprintHandlersDisconnectPinEdgesTest::RunTest(const FString& Param
 	if (!IsSuccess(TimerResponse, Code))
 	{
 		AddError(FString::Printf(TEXT("arrange step failed: add_blueprint_timer returned '%s'"), *Code));
-		DestroyFixtureBlueprint(Fixture);
 		return false;
 	}
 	const TSharedPtr<FJsonObject> TimerResult = ResultOf(TimerResponse);
@@ -1391,7 +1365,6 @@ bool FUEMCPBlueprintHandlersDisconnectPinEdgesTest::RunTest(const FString& Param
 	if (BeginPlayId.IsEmpty() || TimerNodeId.IsEmpty())
 	{
 		AddError(TEXT("arrange step produced no begin-play or timer node id"));
-		DestroyFixtureBlueprint(Fixture);
 		return false;
 	}
 
@@ -1403,7 +1376,6 @@ bool FUEMCPBlueprintHandlersDisconnectPinEdgesTest::RunTest(const FString& Param
 	if (!ThenPin || !ExecutePin || !ThenPin->LinkedTo.Contains(ExecutePin))
 	{
 		AddError(TEXT("arrange step did not link begin play then to the timer execute pin"));
-		DestroyFixtureBlueprint(Fixture);
 		return false;
 	}
 
@@ -1426,7 +1398,6 @@ bool FUEMCPBlueprintHandlersDisconnectPinEdgesTest::RunTest(const FString& Param
 	if (!IsSuccess(DryResponse, Code))
 	{
 		AddError(FString::Printf(TEXT("dry run on the linked pin failed with code '%s'"), *Code));
-		DestroyFixtureBlueprint(Fixture);
 		return false;
 	}
 	const TSharedPtr<FJsonObject> DryResult = ResultOf(DryResponse);
@@ -1485,7 +1456,6 @@ bool FUEMCPBlueprintHandlersDisconnectPinEdgesTest::RunTest(const FString& Param
 	if (!IsSuccess(RightResponse, Code))
 	{
 		AddError(FString::Printf(TEXT("dry run with an explicit target_direction failed with code '%s'"), *Code));
-		DestroyFixtureBlueprint(Fixture);
 		return false;
 	}
 	const TSharedPtr<FJsonObject> RightResult = ResultOf(RightResponse);
@@ -1514,13 +1484,11 @@ bool FUEMCPBlueprintHandlersDisconnectPinEdgesTest::RunTest(const FString& Param
 	if (!ThenPinAfter || !ExecutePinAfter)
 	{
 		AddError(TEXT("could not re-resolve then/execute pins after the dry runs"));
-		DestroyFixtureBlueprint(Fixture);
 		return false;
 	}
 	TestTrue(TEXT("every dispatch here was a dry run, so the link is still there"),
 		ThenPinAfter->LinkedTo.Contains(ExecutePinAfter));
 
-	DestroyFixtureBlueprint(Fixture);
 	return true;
 }
 
@@ -1547,12 +1515,12 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 bool FUEMCPBlueprintHandlersCompilePathsTest::RunTest(const FString& Parameters)
 {
 	using namespace UEMCP::Blueprint::Tests;
+	if (!HasIdleEditorHistory(*this)) return false;
 
-	FFixtureBlueprint Fixture = CreateFixtureBlueprint();
+	FFixtureBlueprint Fixture(AActor::StaticClass());
 	if (!Fixture.Blueprint)
 	{
 		AddError(TEXT("fixture Blueprint was not created"));
-		DestroyFixtureBlueprint(Fixture);
 		return false;
 	}
 	AddFixtureVariable(Fixture.Blueprint, TEXT("Score"), UEdGraphSchema_K2::PC_Int);
@@ -1572,7 +1540,6 @@ bool FUEMCPBlueprintHandlersCompilePathsTest::RunTest(const FString& Parameters)
 	if (!IsSuccess(AssignResponse, Code))
 	{
 		AddError(FString::Printf(TEXT("assignment with compile:true failed with code '%s'"), *Code));
-		DestroyFixtureBlueprint(Fixture);
 		return false;
 	}
 	const TSharedPtr<FJsonObject> AssignResult = ResultOf(AssignResponse);
@@ -1591,7 +1558,6 @@ bool FUEMCPBlueprintHandlersCompilePathsTest::RunTest(const FString& Parameters)
 	if (!SetNode || !ScorePin)
 	{
 		AddError(TEXT("the set node or its Score pin did not survive the compile"));
-		DestroyFixtureBlueprint(Fixture);
 		return false;
 	}
 	TestEqual(TEXT("the literal survived the compile"), ScorePin->DefaultValue, FString(TEXT("5")));
@@ -1611,7 +1577,6 @@ bool FUEMCPBlueprintHandlersCompilePathsTest::RunTest(const FString& Parameters)
 		AddError(FString::Printf(
 			TEXT("timer with compile:true returned '%s'; on COMPILE_FAILED read detail.compile.errors — a fixture Actor Blueprint carrying one variable-set node and one timer chain is expected to compile clean"),
 			*Code));
-		DestroyFixtureBlueprint(Fixture);
 		return false;
 	}
 	const TSharedPtr<FJsonObject> TimerResult = ResultOf(TimerResponse);
@@ -1639,7 +1604,6 @@ bool FUEMCPBlueprintHandlersCompilePathsTest::RunTest(const FString& Parameters)
 	if (BeginPlayId.IsEmpty() || TimerNodeId.IsEmpty())
 	{
 		AddError(TEXT("the timer response named no begin play or timer node"));
-		DestroyFixtureBlueprint(Fixture);
 		return false;
 	}
 
@@ -1658,7 +1622,6 @@ bool FUEMCPBlueprintHandlersCompilePathsTest::RunTest(const FString& Parameters)
 	if (!IsSuccess(DryResponse, Code))
 	{
 		AddError(FString::Printf(TEXT("dry-run disconnect with compile:true failed with code '%s'"), *Code));
-		DestroyFixtureBlueprint(Fixture);
 		return false;
 	}
 	const TSharedPtr<FJsonObject> DryResult = ResultOf(DryResponse);
@@ -1684,7 +1647,6 @@ bool FUEMCPBlueprintHandlersCompilePathsTest::RunTest(const FString& Parameters)
 	if (!IsSuccess(BreakResponse, Code))
 	{
 		AddError(FString::Printf(TEXT("disconnect with compile:true failed with code '%s'"), *Code));
-		DestroyFixtureBlueprint(Fixture);
 		return false;
 	}
 	const TSharedPtr<FJsonObject> BreakResult = ResultOf(BreakResponse);
@@ -1712,12 +1674,10 @@ bool FUEMCPBlueprintHandlersCompilePathsTest::RunTest(const FString& Parameters)
 	if (!ThenAfter || !ExecuteAfter)
 	{
 		AddError(TEXT("could not re-resolve then/execute pins after the compiling break"));
-		DestroyFixtureBlueprint(Fixture);
 		return false;
 	}
 	TestFalse(TEXT("the link is gone after a compiling break"), ThenAfter->LinkedTo.Contains(ExecuteAfter));
 
-	DestroyFixtureBlueprint(Fixture);
 	return true;
 }
 
@@ -1771,34 +1731,33 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 bool FUEMCPBlueprintHandlersTimerFailuresTest::RunTest(const FString& Parameters)
 {
 	using namespace UEMCP::Blueprint::Tests;
+	if (!HasIdleEditorHistory(*this)) return false;
 
 	// ---- NO_GRAPH ----
-	FFixtureBlueprint Library = CreateFixtureBlueprintOfType(
-		UBlueprintFunctionLibrary::StaticClass(), BPTYPE_FunctionLibrary);
-	if (!Library.Blueprint)
 	{
-		AddError(TEXT("function-library fixture Blueprint was not created"));
-		DestroyFixtureBlueprint(Library);
-		return false;
-	}
-	TestEqual(TEXT("a function library has no ubergraph"), Library.Blueprint->UbergraphPages.Num(), 0);
+		FFixtureBlueprint Library(UBlueprintFunctionLibrary::StaticClass(), BPTYPE_FunctionLibrary);
+		if (!Library.Blueprint)
+		{
+			AddError(TEXT("function-library fixture Blueprint was not created"));
+			return false;
+		}
+		TestEqual(TEXT("a function library has no ubergraph"), Library.Blueprint->UbergraphPages.Num(), 0);
 
-	TSharedPtr<FJsonObject> LibraryParams = MakeShared<FJsonObject>();
-	LibraryParams->SetStringField(TEXT("blueprint_name"), Library.PackagePath);
-	LibraryParams->SetStringField(TEXT("callback_function"), TEXT("OnUEMCPLibraryTimer"));
-	LibraryParams->SetNumberField(TEXT("interval"), 1.0);
-	LibraryParams->SetBoolField(TEXT("compile"), false);
-	TestEqual(TEXT("no event graph code"),
-		ErrorCodeOf(Dispatch(TEXT("add_blueprint_timer"), LibraryParams)),
-		FString(TEXT("NO_GRAPH")));
-	DestroyFixtureBlueprint(Library);
+		TSharedPtr<FJsonObject> LibraryParams = MakeShared<FJsonObject>();
+		LibraryParams->SetStringField(TEXT("blueprint_name"), Library.PackagePath);
+		LibraryParams->SetStringField(TEXT("callback_function"), TEXT("OnUEMCPLibraryTimer"));
+		LibraryParams->SetNumberField(TEXT("interval"), 1.0);
+		LibraryParams->SetBoolField(TEXT("compile"), false);
+		TestEqual(TEXT("no event graph code"),
+			ErrorCodeOf(Dispatch(TEXT("add_blueprint_timer"), LibraryParams)),
+			FString(TEXT("NO_GRAPH")));
+	}
 
 	// ---- COMPILE_FAILED and the rollback it triggers ----
-	FFixtureBlueprint Fixture = CreateFixtureBlueprint();
+	FFixtureBlueprint Fixture(AActor::StaticClass());
 	if (!Fixture.Blueprint)
 	{
 		AddError(TEXT("fixture Blueprint was not created"));
-		DestroyFixtureBlueprint(Fixture);
 		return false;
 	}
 
@@ -1806,7 +1765,6 @@ bool FUEMCPBlueprintHandlersTimerFailuresTest::RunTest(const FString& Parameters
 	if (!EventGraph)
 	{
 		AddError(TEXT("fixture Blueprint has no event graph"));
-		DestroyFixtureBlueprint(Fixture);
 		return false;
 	}
 
@@ -1830,7 +1788,6 @@ bool FUEMCPBlueprintHandlersTimerFailuresTest::RunTest(const FString& Parameters
 	if (!ExistingBeginPlay)
 	{
 		AddError(TEXT("fixture Blueprint's event graph has no default ReceiveBeginPlay node"));
-		DestroyFixtureBlueprint(Fixture);
 		return false;
 	}
 	const FString ExistingBeginPlayId = ExistingBeginPlay->NodeGuid.ToString();
@@ -1843,7 +1800,6 @@ bool FUEMCPBlueprintHandlersTimerFailuresTest::RunTest(const FString& Parameters
 	if (!BrokenCallNode)
 	{
 		AddError(TEXT("failed to create the planted call-function node"));
-		DestroyFixtureBlueprint(Fixture);
 		return false;
 	}
 	BrokenCallNode->FunctionReference.SetExternalMember(
@@ -1862,7 +1818,6 @@ bool FUEMCPBlueprintHandlersTimerFailuresTest::RunTest(const FString& Parameters
 	if (!BrokenExecPin || !ExistingThenPin)
 	{
 		AddError(TEXT("could not wire the planted node into the existing BeginPlay exec chain"));
-		DestroyFixtureBlueprint(Fixture);
 		return false;
 	}
 	ExistingThenPin->MakeLinkTo(BrokenExecPin);
@@ -1887,7 +1842,6 @@ bool FUEMCPBlueprintHandlersTimerFailuresTest::RunTest(const FString& Parameters
 	if (!TimerResponse.IsValid() || !TimerResponse->TryGetObjectField(TEXT("detail"), Detail) || !Detail)
 	{
 		AddError(TEXT("COMPILE_FAILED carried no detail object"));
-		DestroyFixtureBlueprint(Fixture);
 		return false;
 	}
 	TestFalse(TEXT("a failed timer compile reports compiled false"), (*Detail)->GetBoolField(TEXT("compiled")));
@@ -1971,7 +1925,6 @@ bool FUEMCPBlueprintHandlersTimerFailuresTest::RunTest(const FString& Parameters
 		AddError(TEXT("could not re-resolve the BeginPlay then/execute pins after rollback"));
 	}
 
-	DestroyFixtureBlueprint(Fixture);
 	return true;
 }
 
@@ -1990,12 +1943,12 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 bool FUEMCPBlueprintHandlersGhostBeginPlayEnabledTest::RunTest(const FString& Parameters)
 {
 	using namespace UEMCP::Blueprint::Tests;
+	if (!HasIdleEditorHistory(*this)) return false;
 
-	FFixtureBlueprint Fixture = CreateFixtureBlueprint();
+	FFixtureBlueprint Fixture(AActor::StaticClass());
 	if (!Fixture.Blueprint)
 	{
 		AddError(TEXT("could not create the fixture Blueprint"));
-		DestroyFixtureBlueprint(Fixture);
 		return false;
 	}
 	UEdGraph* EventGraph = Fixture.Blueprint->UbergraphPages.Num() > 0 ? Fixture.Blueprint->UbergraphPages[0] : nullptr;
@@ -2014,7 +1967,6 @@ bool FUEMCPBlueprintHandlersGhostBeginPlayEnabledTest::RunTest(const FString& Pa
 	if (!EventGraph || !Ghost)
 	{
 		AddError(TEXT("fixture has no event graph with a default ReceiveBeginPlay node"));
-		DestroyFixtureBlueprint(Fixture);
 		return false;
 	}
 	// Preconditions the mechanism depends on: the node is a ghost, and the graph is
@@ -2036,7 +1988,6 @@ bool FUEMCPBlueprintHandlersGhostBeginPlayEnabledTest::RunTest(const FString& Pa
 	UEdGraphPin* GhostThen = FindFixturePin(Ghost, {TEXT("then")}, EGPD_Output);
 	if (!TestNotNull(TEXT("ghost has a then pin"), GhostThen))
 	{
-		DestroyFixtureBlueprint(Fixture);
 		return false;
 	}
 	const int32 OriginalNodeCount = EventGraph->Nodes.Num();
@@ -2063,7 +2014,6 @@ bool FUEMCPBlueprintHandlersGhostBeginPlayEnabledTest::RunTest(const FString& Pa
 	GhostThen = FindFixturePin(Ghost, {TEXT("then")}, EGPD_Output);
 	if (!TestNotNull(TEXT("original BeginPlay pin survives rollback"), GhostThen))
 	{
-		DestroyFixtureBlueprint(Fixture);
 		return false;
 	}
 	TestTrue(TEXT("rejected link leaves BeginPlay a ghost"), Ghost->IsAutomaticallyPlacedGhostNode());
@@ -2077,7 +2027,6 @@ bool FUEMCPBlueprintHandlersGhostBeginPlayEnabledTest::RunTest(const FString& Pa
 	if (!IsSuccess(Response, Code))
 	{
 		AddError(FString::Printf(TEXT("add_blueprint_timer failed: %s"), *Code));
-		DestroyFixtureBlueprint(Fixture);
 		return false;
 	}
 	const TSharedPtr<FJsonObject> Result = ResultOf(Response);
@@ -2103,7 +2052,6 @@ bool FUEMCPBlueprintHandlersGhostBeginPlayEnabledTest::RunTest(const FString& Pa
 	if (!ThenPin || !FirstExecutePin)
 	{
 		AddError(TEXT("could not resolve the first timer's exec link to break it before reusing BeginPlay"));
-		DestroyFixtureBlueprint(Fixture);
 		return false;
 	}
 	ThenPin->BreakLinkTo(FirstExecutePin);
@@ -2121,7 +2069,6 @@ bool FUEMCPBlueprintHandlersGhostBeginPlayEnabledTest::RunTest(const FString& Pa
 		AddError(FString::Printf(TEXT("second add_blueprint_timer failed: %s"), *Code));
 	}
 
-	DestroyFixtureBlueprint(Fixture);
 	return true;
 }
 
@@ -2142,12 +2089,12 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 bool FUEMCPBlueprintHandlersEventNodeGhostSitesTest::RunTest(const FString& Parameters)
 {
 	using namespace UEMCP::Blueprint::Tests;
+	if (!HasIdleEditorHistory(*this)) return false;
 
-	FFixtureBlueprint Fixture = CreateFixtureBlueprint();
+	FFixtureBlueprint Fixture(AActor::StaticClass());
 	if (!Fixture.Blueprint)
 	{
 		AddError(TEXT("could not create the fixture Blueprint"));
-		DestroyFixtureBlueprint(Fixture);
 		return false;
 	}
 	FString Code;
@@ -2220,7 +2167,6 @@ bool FUEMCPBlueprintHandlersEventNodeGhostSitesTest::RunTest(const FString& Para
 	TestNotNull(TEXT("after enabling, the compiled class implements ReceiveTick"),
 		Generated ? Generated->FindFunctionByName(TEXT("ReceiveTick"), EIncludeSuperFlag::ExcludeSuper) : nullptr);
 
-	DestroyFixtureBlueprint(Fixture);
 	return true;
 }
 
@@ -2232,12 +2178,12 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 bool FUEMCPBlueprintHandlersAssignmentCompileFailedTest::RunTest(const FString& Parameters)
 {
 	using namespace UEMCP::Blueprint::Tests;
+	if (!HasIdleEditorHistory(*this)) return false;
 
-	FFixtureBlueprint Fixture = CreateFixtureBlueprint();
+	FFixtureBlueprint Fixture(AActor::StaticClass());
 	if (!Fixture.Blueprint)
 	{
 		AddError(TEXT("could not create the fixture Blueprint"));
-		DestroyFixtureBlueprint(Fixture);
 		return false;
 	}
 	AddFixtureVariable(Fixture.Blueprint, TEXT("Score"), UEdGraphSchema_K2::PC_Int);
@@ -2257,7 +2203,6 @@ bool FUEMCPBlueprintHandlersAssignmentCompileFailedTest::RunTest(const FString& 
 	if (!EventGraph || !ExistingBeginPlay)
 	{
 		AddError(TEXT("fixture has no event graph with a default ReceiveBeginPlay node"));
-		DestroyFixtureBlueprint(Fixture);
 		return false;
 	}
 
@@ -2275,7 +2220,6 @@ bool FUEMCPBlueprintHandlersAssignmentCompileFailedTest::RunTest(const FString& 
 	if (!BrokenExecPin || !ExistingThenPin)
 	{
 		AddError(TEXT("could not wire the planted node into the BeginPlay exec chain"));
-		DestroyFixtureBlueprint(Fixture);
 		return false;
 	}
 	ExistingThenPin->MakeLinkTo(BrokenExecPin);
@@ -2329,7 +2273,6 @@ bool FUEMCPBlueprintHandlersAssignmentCompileFailedTest::RunTest(const FString& 
 		AddError(FString::Printf(TEXT("assignment without compile failed: %s"), *Code));
 	}
 
-	DestroyFixtureBlueprint(Fixture);
 	return true;
 }
 
@@ -2341,6 +2284,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 bool FUEMCPBlueprintCreateParentsTest::RunTest(const FString& Parameters)
 {
 	using namespace UEMCP::Blueprint::Tests;
+	if (!HasIdleEditorHistory(*this)) return false;
 
 	// These go through the real create handler and inspect the resulting object.
 	// Plugin-module fixtures exercise the same /Script/<module> lookup contract
@@ -2379,21 +2323,18 @@ bool FUEMCPBlueprintCreateParentsTest::RunTest(const FString& Parameters)
 			TestTrue(*FString::Printf(TEXT("parent '%s' has exact class identity"), *Entry.Identifier),
 				Fixture.Blueprint->ParentClass == Entry.Expected);
 		}
-		DestroyFixtureBlueprint(Fixture);
 	}
 
 	// Use a real loaded content Blueprint so these refusals establish deliberate
 	// path scope, rather than succeeding only because a fake content path is absent.
-	FFixtureBlueprint ContentParent = CreateFixtureBlueprint();
+	FFixtureBlueprint ContentParent(AActor::StaticClass());
 	if (!TestNotNull(TEXT("content parent fixture exists"), ContentParent.Blueprint))
 	{
-		DestroyFixtureBlueprint(ContentParent);
 		return false;
 	}
 	UClass* ContentParentClass = ContentParent.Blueprint->GeneratedClass;
 	if (!TestNotNull(TEXT("content parent has a generated class"), ContentParentClass))
 	{
-		DestroyFixtureBlueprint(ContentParent);
 		return false;
 	}
 	ContentParent.Blueprint->AddToRoot(); // child-fixture cleanup performs GC
@@ -2416,7 +2357,6 @@ bool FUEMCPBlueprintCreateParentsTest::RunTest(const FString& Parameters)
 		{
 			TestTrue(TEXT("bare-parent child retains exact generated parent"), Fixture.Blueprint->ParentClass == ContentParentClass);
 		}
-		DestroyFixtureBlueprint(Fixture);
 	}
 	const TArray<FString> Rejected = {
 		TEXT("UEMCPDefinitelyMissingParent"),
@@ -2440,10 +2380,8 @@ bool FUEMCPBlueprintCreateParentsTest::RunTest(const FString& Parameters)
 		Fixture.Blueprint = FindObject<UBlueprint>(nullptr, *(Fixture.PackagePath + TEXT(".") + Leaf));
 		TestNull(TEXT("refusal creates no Blueprint"), Fixture.Blueprint);
 		TestNull(TEXT("refusal creates no package"), Fixture.Package);
-		DestroyFixtureBlueprint(Fixture);
 	}
 	ContentParent.Blueprint->RemoveFromRoot();
-	DestroyFixtureBlueprint(ContentParent);
 	return true;
 }
 
@@ -2454,9 +2392,9 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FFormatTextConnection, "UEMCP.BlueprintHandlers
 bool FFormatTextConnection::RunTest(const FString& Parameters)
 {
 	using namespace UEMCP::Blueprint::Tests;
-	FFixtureBlueprint Fixture = CreateFixtureBlueprint();
+	if (!HasIdleEditorHistory(*this)) return false;
+	FFixtureBlueprint Fixture(AActor::StaticClass());
 	if (!TestNotNull(TEXT("Blueprint"), Fixture.Blueprint)) return false;
-	ON_SCOPE_EXIT { DestroyFixtureBlueprint(Fixture); };
 	auto* Graph = FBlueprintEditorUtils::FindEventGraph(Fixture.Blueprint);
 	auto CreateFormat = [&]()
 	{
@@ -2487,10 +2425,7 @@ bool FFormatTextConnection::RunTest(const FString& Parameters)
 	TestTrue(TEXT("Format expression survives"), Format->DefaultTextValue.ToString() == TEXT("{User}"));
 	if (!TestTrue(TEXT("Argument inherited connected text type"), Argument->PinType.PinCategory == UEdGraphSchema_K2::PC_Text)) return false;
 	if (!TestTrue(TEXT("Idle transaction buffer"), GEditor && GEditor->Trans && !GEditor->Trans->IsActive() && !GUndo)) return false;
-	TStrongObjectPtr<UTransactor> Previous(GEditor->Trans.Get());
-	TStrongObjectPtr<UTransBuffer> History(NewObject<UTransBuffer>());
-	History->Initialize(8 * 1024 * 1024);
-	TGuardValue<decltype(GEditor->Trans)> UsePrivateHistory(GEditor->Trans, History.Get());
+	Fixture.History->Reset(NSLOCTEXT("UEMCPTests", "AfterFixtureSetup", "Begin fixture Undo checks"));
 	const auto Disconnect = MakeShared<FJsonObject>();
 	Disconnect->SetStringField(TEXT("blueprint_name"), Fixture.PackagePath);
 	Disconnect->SetStringField(TEXT("graph_name"), Graph->GetName());
@@ -2504,11 +2439,11 @@ bool FFormatTextConnection::RunTest(const FString& Parameters)
 	if (!TestNotNull(TEXT("Disconnected argument still exists"), Argument)) return false;
 	TestTrue(TEXT("Disconnected dynamic argument returns to wildcard"), Argument->PinType.PinCategory == UEdGraphSchema_K2::PC_Wildcard);
 	TestTrue(TEXT("Format value and argument survive disconnect"), Format->DefaultTextValue.ToString() == TEXT("{User}") && Argument->LinkedTo.IsEmpty());
-	if (!TestTrue(TEXT("Undo specific disconnect"), History->Undo())) return false;
+	if (!TestTrue(TEXT("Undo specific disconnect"), Fixture.History->Undo())) return false;
 	Argument = Target->FindPinChecked(TEXT("User"));
 	TestTrue(TEXT("Restored link and type"), Argument->LinkedTo.Contains(ArgumentSource->FindPinChecked(TEXT("Result"))) && Argument->PinType.PinCategory == UEdGraphSchema_K2::PC_Text);
-	TestFalse(TEXT("One disconnect transaction"), History->CanUndo());
-	if (!TestTrue(TEXT("Redo specific disconnect"), History->Redo())) return false;
+	TestFalse(TEXT("One disconnect transaction"), Fixture.History->CanUndo());
+	if (!TestTrue(TEXT("Redo specific disconnect"), Fixture.History->Redo())) return false;
 	Argument = Target->FindPinChecked(TEXT("User"));
 	TestTrue(TEXT("Redo restores wildcard"), Argument->LinkedTo.IsEmpty() && Argument->PinType.PinCategory == UEdGraphSchema_K2::PC_Wildcard);
 	return true;
@@ -2520,9 +2455,9 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FClassPinConnections, "UEMCP.BlueprintHandlers.
 bool FClassPinConnections::RunTest(const FString& Parameters)
 {
 	using namespace UEMCP::Blueprint::Tests;
-	FFixtureBlueprint Fixture = CreateFixtureBlueprint();
+	if (!HasIdleEditorHistory(*this)) return false;
+	FFixtureBlueprint Fixture(AActor::StaticClass());
 	if (!TestNotNull(TEXT("Actor Blueprint"), Fixture.Blueprint)) return false;
-	ON_SCOPE_EXIT { DestroyFixtureBlueprint(Fixture); };
 	auto* Graph = FBlueprintEditorUtils::FindEventGraph(Fixture.Blueprint);
 	auto AddGetter = [&](FName Name, const FEdGraphPinType& Type)
 	{
@@ -2635,6 +2570,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FInteractivePoseConnection, "UEMCP.Animation.Oc
 bool FInteractivePoseConnection::RunTest(const FString& Parameters)
 {
 	using namespace UEMCP::Blueprint::Tests;
+	if (!HasIdleEditorHistory(*this)) return false;
 	FFixtureBlueprint Fixture;
 	const FString Leaf = TEXT("ABP_PinTest_") + FGuid::NewGuid().ToString(EGuidFormats::Digits);
 	Fixture.PackagePath = FString(FixtureRoot) / Leaf;
@@ -2646,7 +2582,6 @@ bool FInteractivePoseConnection::RunTest(const FString& Parameters)
 		FName(*Leaf), RF_Public | RF_Standalone | RF_Transactional, nullptr, GWarn));
 	if (!TestNotNull(TEXT("Fixture AnimBP"), Fixture.Blueprint)) return false;
 	FAssetRegistryModule::AssetCreated(Fixture.Blueprint);
-	ON_SCOPE_EXIT { DestroyFixtureBlueprint(Fixture); };
 	auto* Graph = FindObject<UEdGraph>(Fixture.Blueprint, TEXT("AnimGraph"));
 	if (!TestNotNull(TEXT("AnimGraph"), Graph)) return false;
 	TArray<UAnimGraphNode_Root*> Roots;
@@ -2660,10 +2595,7 @@ bool FInteractivePoseConnection::RunTest(const FString& Parameters)
 		return Node;
 	};
 	if (!TestTrue(TEXT("Idle editor transaction system"), GEditor && GEditor->Trans && !GEditor->Trans->IsActive() && !GUndo)) return false;
-	TStrongObjectPtr<UTransactor> Previous(GEditor->Trans.Get());
-	TStrongObjectPtr<UTransBuffer> History(NewObject<UTransBuffer>());
-	History->Initialize(8 * 1024 * 1024);
-	TGuardValue<decltype(GEditor->Trans)> UsePrivateHistory(GEditor->Trans, History.Get());
+	Fixture.History->Reset(NSLOCTEXT("UEMCPTests", "AfterFixtureSetup", "Begin fixture Undo checks"));
 	auto* Sentinel = NewPose();
 	Sentinel->NodePosX = -779;
 	auto* A = NewPose();
@@ -2707,10 +2639,10 @@ bool FInteractivePoseConnection::RunTest(const FString& Parameters)
 	};
 	Check(B, A);
 	TestTrue(TEXT("Accepted edit dirties package"), Fixture.Package->IsDirty());
-	TestTrue(TEXT("Undo replacement"), History->Undo());
+	TestTrue(TEXT("Undo replacement"), Fixture.History->Undo());
 	Check(A, B);
-	TestFalse(TEXT("Exactly one transaction"), History->CanUndo());
-	TestTrue(TEXT("Redo replacement"), History->Redo());
+	TestFalse(TEXT("Exactly one transaction"), Fixture.History->CanUndo());
+	TestTrue(TEXT("Redo replacement"), Fixture.History->Redo());
 	Check(B, A);
 
 	FGraphNodeCreator<UAnimGraphNode_LinkedAnimGraph> LinkedCreator(*Graph);
@@ -2771,7 +2703,7 @@ bool FInteractivePoseConnection::RunTest(const FString& Parameters)
 		(*Detail)->HasTypedField<EJson::Boolean>(TEXT("rolled_back")) && !(*Detail)->GetBoolField(TEXT("rolled_back")));
 	TestTrue(TEXT("Displaced edge actually absent"), B->FindPinChecked(TEXT("Pose"))->LinkedTo.IsEmpty() &&
 		Root->FindPinChecked(TEXT("Result"))->LinkedTo.IsEmpty());
-	TestTrue(TEXT("One Undo recovers pre-callback graph"), History->Undo());
+	TestTrue(TEXT("One Undo recovers pre-callback graph"), Fixture.History->Undo());
 	TestEqual(TEXT("Original topology recovered"), UEMCP::GraphTopologyRevision(Graph), BeforeChange);
 	Check(B, A);
 	return true;
@@ -2783,6 +2715,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FMontageSlotInsertion, "UEMCP.Animation.InsertM
 bool FMontageSlotInsertion::RunTest(const FString& Parameters)
 {
 	using namespace UEMCP::Blueprint::Tests;
+	if (!HasIdleEditorHistory(*this)) return false;
 	FFixtureBlueprint Fixture;
 	const FString Leaf = TEXT("ABP_Slot_") + FGuid::NewGuid().ToString(EGuidFormats::Digits);
 	Fixture.PackagePath = FString(FixtureRoot) / Leaf;
@@ -2798,7 +2731,6 @@ bool FMontageSlotInsertion::RunTest(const FString& Parameters)
 		FName(*Leaf), RF_Public | RF_Standalone | RF_Transactional, nullptr, GWarn));
 	if (!TestNotNull(TEXT("AnimBP"), Fixture.Blueprint)) return false;
 	FAssetRegistryModule::AssetCreated(Fixture.Blueprint);
-	ON_SCOPE_EXIT { DestroyFixtureBlueprint(Fixture); };
 	auto* Graph = FindObject<UEdGraph>(Fixture.Blueprint, TEXT("AnimGraph"));
 	TArray<UAnimGraphNode_Root*> Roots;
 	Graph->GetNodesOfClass(Roots);
@@ -2810,11 +2742,7 @@ bool FMontageSlotInsertion::RunTest(const FString& Parameters)
 	auto* B = Roots[0]->FindPinChecked(TEXT("Result"));
 	if (!TestTrue(TEXT("Original edge"), Graph->GetSchema()->TryCreateConnection(A, B))) return false;
 
-	if (!TestTrue(TEXT("Idle transaction history"), GEditor && GEditor->Trans && !GEditor->Trans->IsActive() && !GUndo)) return false;
-	TStrongObjectPtr<UTransactor> OriginalHistory(GEditor->Trans.Get());
-	TStrongObjectPtr<UTransBuffer> History(NewObject<UTransBuffer>());
-	History->Initialize(8 * 1024 * 1024);
-	TGuardValue<decltype(GEditor->Trans)> UseHistory(GEditor->Trans, History.Get());
+	Fixture.History->Reset(NSLOCTEXT("UEMCPTests", "AfterFixtureSetup", "Begin fixture Undo checks"));
 	{
 		FScopedTransaction Sentinel(NSLOCTEXT("UEMCPTests","SlotSentinel","Previous independent edit"));
 		Source->Modify();
@@ -2910,15 +2838,15 @@ bool FMontageSlotInsertion::RunTest(const FString& Parameters)
 	TestEqual(TEXT("All original nodes and edges restored"), UEMCP::GraphTopologyRevision(Graph), Before);
 	TestEqual(TEXT("Blueprint status restored"), int32(Fixture.Blueprint->Status), int32(PriorStatus));
 	TestFalse(TEXT("Original package dirt restored"), Fixture.Package->IsDirty());
-	TestTrue(TEXT("Previous independent edit still undoable"), History->Undo());
+	TestTrue(TEXT("Previous independent edit still undoable"), Fixture.History->Undo());
 	TestNotEqual(TEXT("No spurious rollback transaction"), Source->NodePosY, 313);
-	TestTrue(TEXT("Redo previous edit"), History->Redo());
+	TestTrue(TEXT("Redo previous edit"), Fixture.History->Redo());
 	if (!TestTrue(TEXT("Apply Slot"), IsSuccess(Invoke(), Code))) return false;
 	const auto After = UEMCP::GraphTopologyRevision(Graph);
 	TestEqual(TEXT("Repeat is stale"), ErrorCodeOf(Invoke()), FString(TEXT("STALE_GRAPH")));
-	TestTrue(TEXT("Undo Slot"), History->Undo());
+	TestTrue(TEXT("Undo Slot"), Fixture.History->Undo());
 	TestEqual(TEXT("Undo restores exact topology"), UEMCP::GraphTopologyRevision(Graph), Before);
-	TestTrue(TEXT("Redo Slot"), History->Redo());
+	TestTrue(TEXT("Redo Slot"), Fixture.History->Redo());
 	TestEqual(TEXT("Redo restores exact topology"), UEMCP::GraphTopologyRevision(Graph), After);
 	return true;
 }
@@ -2930,28 +2858,25 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FAssignmentSavedFailureIsolation,
 bool FAssignmentSavedFailureIsolation::RunTest(const FString& Parameters)
 {
 	using namespace UEMCP::Blueprint::Tests;
-	if (!TestTrue(TEXT("Idle editor history"), GEditor && GEditor->Trans && !GEditor->Trans->IsActive() && !GUndo)) return false;
-	TStrongObjectPtr<UTransactor> PreviousHistory(GEditor->Trans.Get());
-	TStrongObjectPtr<UTransBuffer> History(NewObject<UTransBuffer>());
-	History->Initialize(8 * 1024 * 1024);
-	TGuardValue<decltype(GEditor->Trans)> UseHistory(GEditor->Trans, History.Get());
+	if (!HasIdleEditorHistory(*this)) return false;
 	auto* Settings = GetMutableDefault<UBlueprintEditorSettings>();
 	const auto OriginalPolicy = Settings->SaveOnCompile;
 	ON_SCOPE_EXIT { Settings->SaveOnCompile = OriginalPolicy; };
 
 	for (bool bOuter : { false, true }) for (bool bDirty : { false, true })
 	{
-		History->Reset(NSLOCTEXT("UEMCPTests", "AssignmentIsolationReset", "Assignment isolation case"));
-		FFixtureBlueprint Fixture = CreateFixtureBlueprint();
-		if (!TestNotNull(TEXT("Ordinary Actor Blueprint"), Fixture.Blueprint)) return false;
-		const FString Filename = FPackageName::LongPackageNameToFilename(Fixture.PackagePath, FPackageName::GetAssetPackageExtension());
+		FString Filename;
 		ON_SCOPE_EXIT
 		{
-			History->Reset(NSLOCTEXT("UEMCPTests", "AssignmentIsolationCleanup", "Assignment isolation cleanup"));
-			DestroyFixtureBlueprint(Fixture);
-			IFileManager::Get().Delete(*Filename, false, true);
-			TestFalse(FString::Printf(TEXT("Saved fixture removed from %s"), *Filename), IFileManager::Get().FileExists(*Filename));
+			if (!Filename.IsEmpty())
+			{
+				IFileManager::Get().Delete(*Filename, false, true);
+				TestFalse(FString::Printf(TEXT("Saved fixture removed from %s"), *Filename), IFileManager::Get().FileExists(*Filename));
+			}
 		};
+		FFixtureBlueprint Fixture(AActor::StaticClass());
+		if (!TestNotNull(TEXT("Ordinary Actor Blueprint"), Fixture.Blueprint)) return false;
+		Filename = FPackageName::LongPackageNameToFilename(Fixture.PackagePath, FPackageName::GetAssetPackageExtension());
 		AddFixtureVariable(Fixture.Blueprint, TEXT("Score"), UEdGraphSchema_K2::PC_Int);
 		AddFixtureVariable(Fixture.Blueprint, TEXT("SourceScore"), UEdGraphSchema_K2::PC_Int);
 		Settings->SaveOnCompile = SoC_Never;
@@ -3047,7 +2972,7 @@ bool FAssignmentSavedFailureIsolation::RunTest(const FString& Parameters)
 			Begin->Modify();
 			Begin->NodePosX = OriginalX + 91;
 			InvokeAndCheck();
-			TestTrue(TEXT("Failed inner operation preserves caller active transaction"), History->IsActive());
+			TestTrue(TEXT("Failed inner operation preserves caller active transaction"), Fixture.History->IsActive());
 			TestEqual(TEXT("Caller edit remains applied"), Begin->NodePosX, OriginalX + 91);
 		}
 		else
@@ -3059,10 +2984,10 @@ bool FAssignmentSavedFailureIsolation::RunTest(const FString& Parameters)
 			}
 			InvokeAndCheck();
 		}
-		TestTrue(TEXT("Independent edit still undoable"), History->Undo());
+		TestTrue(TEXT("Independent edit still undoable"), Fixture.History->Undo());
 		TestEqual(TEXT("One Undo restores independent edit"), Begin->NodePosX, OriginalX);
-		TestFalse(TEXT("No spurious assignment transaction"), History->CanUndo());
-		TestTrue(TEXT("Independent edit still redoable"), History->Redo());
+		TestFalse(TEXT("No spurious assignment transaction"), Fixture.History->CanUndo());
+		TestTrue(TEXT("Independent edit still redoable"), Fixture.History->Redo());
 		TestEqual(TEXT("Redo reapplies only independent edit"), Begin->NodePosX, OriginalX + 91);
 	}
 	return true;
@@ -3074,6 +2999,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStateNamingIsolation, "UEMCP.BlueprintHandlers
 bool FStateNamingIsolation::RunTest(const FString& Parameters)
 {
 	using namespace UEMCP::Blueprint::Tests;
+	if (!HasIdleEditorHistory(*this)) return false;
 	FFixtureBlueprint Fixture;
 	const FString Leaf = TEXT("ABP_StateName_") + FGuid::NewGuid().ToString();
 	Fixture.PackagePath = FString(FixtureRoot) / Leaf;
@@ -3086,7 +3012,6 @@ bool FStateNamingIsolation::RunTest(const FString& Parameters)
 	if (!TestNotNull(TEXT("Fixture AnimBP"), BP)) return false;
 	Fixture.Blueprint = BP;
 	FAssetRegistryModule::AssetCreated(BP);
-	ON_SCOPE_EXIT { DestroyFixtureBlueprint(Fixture); };
 	auto* Top = FindObject<UEdGraph>(BP, TEXT("AnimGraph"));
 	auto* Events = FBlueprintEditorUtils::FindEventGraph(BP);
 	if (!TestNotNull(TEXT("AnimGraph"), Top) || !TestNotNull(TEXT("EventGraph"), Events)) return false;
@@ -3110,11 +3035,7 @@ bool FStateNamingIsolation::RunTest(const FString& Parameters)
 	Call->SetFromFunction(StateFunction);
 	Call->FunctionReference.SetSelfMember(TEXT("State"));
 	Creator.Finalize();
-	if (!TestTrue(TEXT("Idle transaction system"), GEditor && GEditor->Trans && !GEditor->Trans->IsActive() && !GUndo)) return false;
-	TStrongObjectPtr<UTransactor> Previous(GEditor->Trans.Get());
-	TStrongObjectPtr<UTransBuffer> History(NewObject<UTransBuffer>());
-	History->Initialize(8 * 1024 * 1024);
-	TGuardValue<decltype(GEditor->Trans)> UsePrivateHistory(GEditor->Trans, History.Get());
+	Fixture.History->Reset(NSLOCTEXT("UEMCPTests", "AfterFixtureSetup", "Begin fixture Undo checks"));
 	auto Request = MakeShared<FJsonObject>();
 	Request->SetStringField(TEXT("asset_path"), Fixture.PackagePath);
 	Request->SetArrayField(TEXT("node_position"), {MakeShared<FJsonValueNumber>(0), MakeShared<FJsonValueNumber>(0)});
@@ -3143,7 +3064,7 @@ bool FStateNamingIsolation::RunTest(const FString& Parameters)
 		TestEqual(TEXT("Reject invalid title before creation"), ErrorCodeOf(Dispatch(TEXT("add_anim_state_machine"), Request)), FString(TEXT("INVALID_NAME")));
 	}
 	CheckRefusal(Top, TEXT("add_anim_state_machine"));
-	TestFalse(TEXT("Failed machine leaves no history"), History->CanUndo());
+	TestFalse(TEXT("Failed machine leaves no history"), Fixture.History->CanUndo());
 	Target(Top, TEXT("Ground Movement"));
 	FString Code;
 	if (!TestTrue(TEXT("Create machine"), IsSuccess(Dispatch(TEXT("add_anim_state_machine"), Request), Code))) return false;
@@ -3164,9 +3085,9 @@ bool FStateNamingIsolation::RunTest(const FString& Parameters)
 	TestEqual(TEXT("Self call still targets State"), Call->FunctionReference.GetMemberName(), FName(TEXT("State")));
 	TestTrue(TEXT("Member name and GUID preserved"), BP->NewVariables.IsValidIndex(MemberIndex) &&
 		BP->NewVariables[MemberIndex].VarName == TEXT("KeepMember") && BP->NewVariables[MemberIndex].VarGuid == MemberGuid);
-	TestTrue(TEXT("Undo accepted state"), History->Undo());
-	TestTrue(TEXT("Undo accepted machine"), History->Undo());
-	TestFalse(TEXT("Rejected state did not add an undo entry"), History->CanUndo());
+	TestTrue(TEXT("Undo accepted state"), Fixture.History->Undo());
+	TestTrue(TEXT("Undo accepted machine"), Fixture.History->Undo());
+	TestFalse(TEXT("Rejected state did not add an undo entry"), Fixture.History->CanUndo());
 	return true;
 }
 
@@ -3176,9 +3097,9 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGraphNodePinInspection, "UEMCP.BlueprintHandle
 bool FGraphNodePinInspection::RunTest(const FString& Parameters)
 {
 	using namespace UEMCP::Blueprint::Tests;
-	FFixtureBlueprint Fixture = CreateFixtureBlueprint();
+	if (!HasIdleEditorHistory(*this)) return false;
+	FFixtureBlueprint Fixture(AActor::StaticClass());
 	if (!TestNotNull(TEXT("Actor Blueprint"), Fixture.Blueprint)) return false;
-	ON_SCOPE_EXIT { DestroyFixtureBlueprint(Fixture); };
 	auto* Graph = FixtureEventGraph(Fixture.Blueprint);
 	if (!TestNotNull(TEXT("EventGraph"), Graph)) return false;
 	// Construct the read fixture through Unreal itself. A user-facing placement
@@ -3262,14 +3183,10 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FFunctionConnectionUndo, "UEMCP.BlueprintHandle
 bool FFunctionConnectionUndo::RunTest(const FString& Parameters)
 {
 	using namespace UEMCP::Blueprint::Tests;
-	FFixtureBlueprint Fixture = CreateFixtureBlueprint();
+	if (!HasIdleEditorHistory(*this)) return false;
+	FFixtureBlueprint Fixture(AActor::StaticClass());
 	if (!TestNotNull(TEXT("Actor Blueprint"), Fixture.Blueprint)) return false;
-	ON_SCOPE_EXIT { DestroyFixtureBlueprint(Fixture); };
-	if (!TestTrue(TEXT("Idle transaction system"), GEditor && GEditor->Trans && !GEditor->Trans->IsActive() && !GUndo)) return false;
-	TStrongObjectPtr<UTransactor> Previous(GEditor->Trans.Get());
-	TStrongObjectPtr<UTransBuffer> History(NewObject<UTransBuffer>());
-	History->Initialize(8 * 1024 * 1024);
-	TGuardValue<decltype(GEditor->Trans)> UseHistory(GEditor->Trans, History.Get());
+	Fixture.History->Reset(NSLOCTEXT("UEMCPTests", "AfterFixtureSetup", "Begin fixture Undo checks"));
 	auto* Graph = FixtureEventGraph(Fixture.Blueprint);
 	if (!TestNotNull(TEXT("EventGraph"), Graph)) return false;
 	auto Params = MakeShared<FJsonObject>();
@@ -3285,7 +3202,7 @@ bool FFunctionConnectionUndo::RunTest(const FString& Parameters)
 	auto* To = Place();
 	if (!TestNotNull(TEXT("Function output node"), From) || !TestNotNull(TEXT("Function input node"), To)) return false;
 	TestTrue(TEXT("Placed calls participate in editor transactions"), From->HasAnyFlags(RF_Transactional) && To->HasAnyFlags(RF_Transactional));
-	History->Reset(FText::FromString(TEXT("Fixture setup complete")));
+	Fixture.History->Reset(FText::FromString(TEXT("Fixture setup complete")));
 	auto Connect = MakeShared<FJsonObject>();
 	Connect->SetStringField(TEXT("blueprint_name"), Fixture.PackagePath);
 	Connect->SetStringField(TEXT("source_node_id"), From->NodeGuid.ToString());
@@ -3305,11 +3222,11 @@ bool FFunctionConnectionUndo::RunTest(const FString& Parameters)
 			Output->LinkedTo.Contains(Input) && Input->LinkedTo.Contains(Output);
 	};
 	TestTrue(TEXT("New edge reciprocal"), Connected());
-	TestTrue(TEXT("One Undo"), History->Undo());
+	TestTrue(TEXT("One Undo"), Fixture.History->Undo());
 	TestTrue(TEXT("Undo removes links on both function nodes"), From->FindPinChecked(TEXT("ReturnValue"))->LinkedTo.IsEmpty() &&
 		To->FindPinChecked(TEXT("A"))->LinkedTo.IsEmpty());
-	TestFalse(TEXT("No additional edit to undo"), History->CanUndo());
-	TestTrue(TEXT("Redo connection"), History->Redo());
+	TestFalse(TEXT("No additional edit to undo"), Fixture.History->CanUndo());
+	TestTrue(TEXT("Redo connection"), Fixture.History->Redo());
 	TestTrue(TEXT("Redo restores both function pins"), Connected());
 	// Disconnect is also a first edit on a previously wired legacy asset.
 	From->ClearFlags(RF_Transactional);
@@ -3322,7 +3239,7 @@ bool FFunctionConnectionUndo::RunTest(const FString& Parameters)
 	if (!TestTrue(TEXT("Disconnect legacy function nodes"), IsSuccess(Dispatch(TEXT("disconnect_blueprint_pin"), Disconnect), Code))) return false;
 	TestTrue(TEXT("Disconnect clears both endpoints"), From->FindPinChecked(TEXT("ReturnValue"))->LinkedTo.IsEmpty() &&
 		To->FindPinChecked(TEXT("A"))->LinkedTo.IsEmpty());
-	TestTrue(TEXT("Undo legacy disconnect"), History->Undo());
+	TestTrue(TEXT("Undo legacy disconnect"), Fixture.History->Undo());
 	TestTrue(TEXT("Undo restores both legacy links"), Connected());
 	return true;
 }
@@ -3333,13 +3250,9 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FUEMCPWriterPinDefaultsTest, "UEMCP.BlueprintHa
 bool FUEMCPWriterPinDefaultsTest::RunTest(const FString&)
 {
 	using namespace UEMCP::Blueprint::Tests;
-	FFixtureBlueprint Fixture = CreateFixtureBlueprint();
-	ON_SCOPE_EXIT { DestroyFixtureBlueprint(Fixture); };
-	if (!TestTrue(TEXT("Idle transaction system"), GEditor && GEditor->Trans && !GEditor->Trans->IsActive() && !GUndo)) return false;
-	TStrongObjectPtr<UTransactor> Previous(GEditor->Trans.Get());
-	TStrongObjectPtr<UTransBuffer> History(NewObject<UTransBuffer>());
-	History->Initialize(8 * 1024 * 1024);
-	TGuardValue<decltype(GEditor->Trans)> UseHistory(GEditor->Trans, History.Get());
+	if (!HasIdleEditorHistory(*this)) return false;
+	FFixtureBlueprint Fixture(AActor::StaticClass());
+	Fixture.History->Reset(NSLOCTEXT("UEMCPTests", "AfterFixtureSetup", "Begin fixture Undo checks"));
 	if (!TestNotNull(TEXT("fixture"), Fixture.Blueprint)) return false;
 	AddFixtureVariable(Fixture.Blueprint, TEXT("Amount"), UEdGraphSchema_K2::PC_Int);
 	AddFixtureVariable(Fixture.Blueprint, TEXT("Single"), UEdGraphSchema_K2::PC_Real, UEdGraphSchema_K2::PC_Float);
@@ -3483,12 +3396,12 @@ bool FUEMCPWriterPinDefaultsTest::RunTest(const FString&)
 	Literal->SetNumberField(TEXT("value"), 2147483648.0);
 	AssignmentParams->SetObjectField(TEXT("assignment"), Literal);
 	const int32 BeforeAssignment = Graph->Nodes.Num();
-	const int32 BeforeUndo = History->GetQueueLength();
+	const int32 BeforeUndo = Fixture.History->GetQueueLength();
 	Fixture.Package->SetDirtyFlag(false);
 	TestEqual(TEXT("refuse overflowing assignment"), ErrorCodeOf(Dispatch(TEXT("add_blueprint_variable_assignment"), AssignmentParams)),
 		FString(TEXT("LITERAL_TYPE_MISMATCH")));
 	TestEqual(TEXT("refusal preserves graph membership"), Graph->Nodes.Num(), BeforeAssignment);
-	TestEqual(TEXT("refusal preserves Undo history"), History->GetQueueLength(), BeforeUndo);
+	TestEqual(TEXT("refusal preserves Undo history"), Fixture.History->GetQueueLength(), BeforeUndo);
 	TestFalse(TEXT("refusal preserves clean package"), Fixture.Package->IsDirty());
 
 	// A user can reorder the event pages independently of their names.
@@ -3521,9 +3434,8 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FUEMCPFunctionGraphIdentityTest, "UEMCP.Bluepri
 bool FUEMCPFunctionGraphIdentityTest::RunTest(const FString&)
 {
 	using namespace UEMCP::Blueprint::Tests;
-	if (!TestTrue(TEXT("Idle transaction system"), GEditor && GEditor->Trans && !GEditor->Trans->IsActive() && !GUndo)) return false;
-	FFixtureBlueprint Fixture = CreateFixtureBlueprint();
-	ON_SCOPE_EXIT { DestroyFixtureBlueprint(Fixture); };
+	if (!HasIdleEditorHistory(*this)) return false;
+	FFixtureBlueprint Fixture(AActor::StaticClass());
 	if (!TestNotNull(TEXT("fixture"), Fixture.Blueprint)) return false;
 	TSharedPtr<FJsonObject> Params = MakeShared<FJsonObject>();
 	Params->SetStringField(TEXT("blueprint_name"), Fixture.PackagePath);
@@ -3557,54 +3469,13 @@ bool FUEMCPFunctionGraphIdentityTest::RunTest(const FString&)
 	return true;
 }
 
-namespace UEMCP::Blueprint::Tests
-{
-	/** Owns the transactions and the one unsaved package used by the pawn wiring fixture. */
-	struct FScopedPawnFixture
-	{
-		TStrongObjectPtr<UTransactor> EditorHistory{GEditor->Trans.Get()};
-		TStrongObjectPtr<UTransBuffer> History{NewObject<UTransBuffer>()};
-		TGuardValue<decltype(GEditor->Trans)> UseHistory{GEditor->Trans, History.Get()};
-		FFixtureBlueprint Asset;
-
-		FScopedPawnFixture()
-		{
-			History->Initialize(8 * 1024 * 1024);
-			Asset = CreateFixtureBlueprintOfType(APawn::StaticClass(), BPTYPE_Normal);
-		}
-
-		~FScopedPawnFixture()
-		{
-			// Transaction records keep graph objects alive across collection.
-			History->Reset(NSLOCTEXT("UEMCPTests", "PawnFixtureCleanup", "Release pawn fixture transactions"));
-			if (Asset.Blueprint)
-			{
-				FAssetRegistryModule::AssetDeleted(Asset.Blueprint);
-				Asset.Blueprint->ClearFlags(RF_Public | RF_Standalone);
-			}
-			if (Asset.Package)
-			{
-				Asset.Package->SetDirtyFlag(false);
-				Asset.Package->ClearFlags(RF_Standalone);
-				// As in package unloading, include standalone metadata and other owned objects.
-				ForEachObjectWithPackage(Asset.Package, [](UObject* Object)
-				{
-					Object->ClearFlags(RF_Standalone);
-					return true;
-				});
-			}
-			CollectGarbage(GARBAGE_COLLECTION_KEEPFLAGS);
-		}
-	};
-}
-
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPawnGraphGuidWiring, "UEMCP.BlueprintHandlers.PawnGraphGuidWiring",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
 bool FPawnGraphGuidWiring::RunTest(const FString& Parameters)
 {
 	using namespace UEMCP::Blueprint::Tests;
-	if (!TestTrue(TEXT("Idle editor history"), GEditor && GEditor->Trans && !GEditor->Trans->IsActive() && !GUndo)) return false;
+	if (!HasIdleEditorHistory(*this)) return false;
 	TStrongObjectPtr<UTransactor> EditorHistory(GEditor->Trans.Get());
 	const int32 PreviousQueueLength = EditorHistory->GetQueueLength();
 	const int32 PreviousUndoCount = EditorHistory->GetUndoCount();
@@ -3616,8 +3487,7 @@ bool FPawnGraphGuidWiring::RunTest(const FString& Parameters)
 		TestEqual(TEXT("Pawn fixture preserves the editor Undo cursor"), EditorHistory->GetUndoCount(), PreviousUndoCount);
 		TestFalse(TEXT("Ordinary collection released the wired Blueprint"), RetiredBlueprint.IsValid());
 	};
-	FScopedPawnFixture PawnFixture;
-	FFixtureBlueprint& Fixture = PawnFixture.Asset;
+	FFixtureBlueprint Fixture(APawn::StaticClass());
 	RetiredBlueprint = Fixture.Blueprint;
 	if (!TestNotNull(TEXT("Pawn Blueprint"), Fixture.Blueprint)) return false;
 	UEdGraph* Graph = FixtureEventGraph(Fixture.Blueprint);
@@ -3660,7 +3530,7 @@ bool FPawnGraphGuidWiring::RunTest(const FString& Parameters)
 	TestTrue(TEXT("Read leaves reciprocal wire intact"), Source->FindPinChecked(TEXT("ReturnValue"))->LinkedTo.Contains(Target->FindPinChecked(TEXT("A"))));
 	TestTrue(TEXT("Disconnect by graph GUID"), IsSuccess(Dispatch(TEXT("disconnect_blueprint_pin"), Pin), Code));
 	TestTrue(TEXT("Disconnect removed both ends"), Source->FindPinChecked(TEXT("ReturnValue"))->LinkedTo.IsEmpty() && Target->FindPinChecked(TEXT("A"))->LinkedTo.IsEmpty());
-	TestTrue(TEXT("Pawn edits are recorded in the fixture history"), PawnFixture.History->IsObjectInTransactionBuffer(Source));
+	TestTrue(TEXT("Pawn edits are recorded in the fixture history"), Fixture.History->IsObjectInTransactionBuffer(Source));
 	TestFalse(TEXT("Editor Undo history holds no pawn fixture node"), EditorHistory->IsObjectInTransactionBuffer(Source));
 	return true;
 }
@@ -3671,9 +3541,8 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FReadOnlyGraphWiring, "UEMCP.BlueprintHandlers.
 bool FReadOnlyGraphWiring::RunTest(const FString&)
 {
 	using namespace UEMCP::Blueprint::Tests;
-	if (!TestTrue(TEXT("Idle editor history"), GEditor && GEditor->Trans && !GEditor->Trans->IsActive() && !GUndo)) return false;
-	FScopedPawnFixture Pawn;
-	FFixtureBlueprint& Fixture = Pawn.Asset;
+	if (!HasIdleEditorHistory(*this)) return false;
+	FFixtureBlueprint Fixture(APawn::StaticClass());
 	if (!TestNotNull(TEXT("Pawn fixture"), Fixture.Blueprint)) return false;
 	UEdGraph* Event = FixtureEventGraph(Fixture.Blueprint);
 	UEdGraph* Other = FBlueprintEditorUtils::CreateNewGraph(Fixture.Blueprint, TEXT("SecondaryEvents"),
@@ -3701,8 +3570,8 @@ bool FReadOnlyGraphWiring::RunTest(const FString&)
 		Graph->bEditable = false;
 		Fixture.Package->SetDirtyFlag(false);
 		const FString Revision = UEMCP::GraphTopologyRevision(Graph);
-		const int32 Queue = Pawn.History->GetQueueLength();
-		const int32 Cursor = Pawn.History->GetUndoCount();
+		const int32 Queue = Fixture.History->GetQueueLength();
+		const int32 Cursor = Fixture.History->GetUndoCount();
 		for (const TCHAR* Selector : { TEXT("graph_guid"), TEXT("graph_name"), TEXT("") })
 		{
 			if (!*Selector && Graph != Event) continue;
@@ -3739,8 +3608,8 @@ bool FReadOnlyGraphWiring::RunTest(const FString&)
 			TestTrue(TEXT("Original reciprocal edge remains"), Output->LinkedTo.Contains(Input) && Input->LinkedTo.Contains(Output));
 			TestTrue(TEXT("Requested input stays unlinked"), Unlinked->FindPinChecked(TEXT("A"))->LinkedTo.IsEmpty());
 			TestFalse(TEXT("Package stays clean"), Fixture.Package->IsDirty());
-			TestEqual(TEXT("Undo queue stays intact"), Pawn.History->GetQueueLength(), Queue);
-			TestEqual(TEXT("Undo cursor stays intact"), Pawn.History->GetUndoCount(), Cursor);
+			TestEqual(TEXT("Undo queue stays intact"), Fixture.History->GetQueueLength(), Queue);
+			TestEqual(TEXT("Undo cursor stays intact"), Fixture.History->GetUndoCount(), Cursor);
 		}
 	}
 	UEdGraph* FunctionGraph = FBlueprintEditorUtils::CreateNewGraph(Fixture.Blueprint, TEXT("OtherFunction"), UEdGraph::StaticClass(), UEdGraphSchema_K2::StaticClass());
@@ -3762,7 +3631,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPawnFixtureEarlyReturn, "UEMCP.BlueprintHandle
 bool FPawnFixtureEarlyReturn::RunTest(const FString&)
 {
 	using namespace UEMCP::Blueprint::Tests;
-	if (!TestTrue(TEXT("Idle editor history"), GEditor && GEditor->Trans && !GEditor->Trans->IsActive() && !GUndo)) return false;
+	if (!HasIdleEditorHistory(*this)) return false;
 	TStrongObjectPtr<UTransactor> EditorHistory(GEditor->Trans.Get());
 	TStrongObjectPtr<UTransBuffer> CallerHistory(NewObject<UTransBuffer>());
 	CallerHistory->Initialize(8 * 1024 * 1024);
@@ -3779,19 +3648,19 @@ bool FPawnFixtureEarlyReturn::RunTest(const FString&)
 	TWeakObjectPtr<UTransBuffer> RetiredHistory;
 	auto AbortEdit = [&]()
 	{
-		FScopedPawnFixture PawnFixture;
+		FFixtureBlueprint PawnFixture(APawn::StaticClass());
 		RetiredHistory = PawnFixture.History.Get();
-		RetiredBlueprint = PawnFixture.Asset.Blueprint;
-		if (!TestNotNull(TEXT("Created pawn for interrupted edit"), PawnFixture.Asset.Blueprint)) return false;
+		RetiredBlueprint = PawnFixture.Blueprint;
+		if (!TestNotNull(TEXT("Created pawn for interrupted edit"), PawnFixture.Blueprint)) return false;
 		{
 			FScopedTransaction Transaction(NSLOCTEXT("UEMCPTests", "PawnInterruptedEdit", "Edit pawn before interruption"));
-			PawnFixture.Asset.Blueprint->Modify();
-			PawnFixture.Asset.Blueprint->BlueprintDescription = TEXT("Interrupted fixture edit");
+			PawnFixture.Blueprint->Modify();
+			PawnFixture.Blueprint->BlueprintDescription = TEXT("Interrupted fixture edit");
 		}
 		TestTrue(TEXT("Private Undo record references the pawn before early return"),
-			PawnFixture.History->IsObjectInTransactionBuffer(PawnFixture.Asset.Blueprint));
+			PawnFixture.History->IsObjectInTransactionBuffer(PawnFixture.Blueprint));
 		auto Request = MakeShared<FJsonObject>();
-		Request->SetStringField(TEXT("blueprint_name"), PawnFixture.Asset.PackagePath);
+		Request->SetStringField(TEXT("blueprint_name"), PawnFixture.PackagePath);
 		Request->SetStringField(TEXT("graph_guid"), FGuid::NewGuid().ToString());
 		Request->SetStringField(TEXT("node_id"), FGuid::NewGuid().ToString());
 		Request->SetStringField(TEXT("pin"), TEXT("A"));
@@ -3809,6 +3678,28 @@ bool FPawnFixtureEarlyReturn::RunTest(const FString&)
 	TestFalse(TEXT("Ordinary collection released the interrupted Blueprint"), RetiredBlueprint.IsValid());
 	if (!TestTrue(TEXT("Unrelated redo remains executable"), CallerHistory->Redo())) return false;
 	TestEqual(TEXT("Redo restored unrelated property"), Unrelated->IntValue, 19);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FBlueprintFixtureExternalOwner, "UEMCP.BlueprintHandlers.FixtureExternalOwner",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FBlueprintFixtureExternalOwner::RunTest(const FString&)
+{
+	using namespace UEMCP::Blueprint::Tests;
+	if (!HasIdleEditorHistory(*this)) return false;
+	TStrongObjectPtr<UBlueprint> Owner;
+	TWeakObjectPtr<UBlueprint> Blueprint;
+	{
+		FFixtureBlueprint Fixture(AActor::StaticClass());
+		if (!TestNotNull(TEXT("Created ordinary Actor Blueprint"), Fixture.Blueprint)) return false;
+		Owner.Reset(Fixture.Blueprint);
+		Blueprint = Fixture.Blueprint;
+	}
+	TestTrue(TEXT("An independent owner keeps the retired Blueprint alive"), Blueprint.IsValid());
+	Owner.Reset();
+	CollectGarbage(GARBAGE_COLLECTION_KEEPFLAGS);
+	TestFalse(TEXT("Collection releases the Blueprint after its last owner"), Blueprint.IsValid());
 	return true;
 }
 

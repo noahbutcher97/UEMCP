@@ -33,14 +33,23 @@ projects. Historical rationale is retained in the [September notes preserved at 
   Blueprint and preserve an unrelated redo on all three engines. Five fresh UE
   5.3.2 content-only editors passed the original nine-case suite with the same
   project-built DLL.
-- [ ] **Investigate the intermittent UE 5.3.2 fixture GC crash.** During integration
-  one 38-case run crashed in a CoreUObject worker while the game thread tore
-  down the AssignmentExecFrom fixture. Three subsequent full runs passed with
-  the same binaries. The earlier packaged crash occurred during PawnGraphGuidWiring.
-  Both crashes read address 0xc and share 15 trailing frames. Their top frames
-  differ, and the invalid UObject and common cause remain unknown. Preserve the
-  dumps and match engine symbols, then capture pre-collection transaction and
-  object identities in a diagnostic run. [Original package evidence](../../tasks/todo.md#core-correctness-results-2026-11-22)
+- [ ] **Identify the writer if the UE 5.3.2 fixture GC crash recurs.** Matching
+  Epic symbols and the two worker contexts identified the same failed read.
+  During PawnGraphGuidWiring and AssignmentExecFrom, a validated mutable GC
+  reference contained a null object when Unreal read its internal index. Both
+  minidumps omit the memory at the original reference slot. The owner and
+  writer remain unknown. On a recurrence in an owned editor, preserve a local
+  full-memory dump (`run-native-tests.mjs --extra-arg -fullcrashdump`), the
+  matching binaries and the automation log before retrying. Trace the slot
+  back to its owner and compare it with the fixture and its transaction records.
+  [Original package evidence](../../tasks/todo.md#core-correctness-results-2026-11-22)
+- [x] **Isolate Blueprint handler fixtures from editor Undo.** Immediately
+  before the old AssignmentExecFrom teardown, the caller's Undo history held
+  the Blueprint, event graph, call node and assignment node in two transactions.
+  Shared fixtures now release their own transactions and let ordinary GC
+  respect other owners. A strong-owner regression failed on the former teardown
+  and passed with the change. The historical dumps do not connect either
+  recorded crash to these four objects.
 
 | ID | Status | Work / acceptance |
 |---|---|---|

@@ -108,6 +108,7 @@ try {
     'UEMCP.BlueprintHandlers.PawnGraphGuidWiring',
     'UEMCP.BlueprintHandlers.ReadOnlyGraphWiring',
     'UEMCP.BlueprintHandlers.PawnFixtureEarlyReturn',
+    'UEMCP.BlueprintHandlers.FixtureExternalOwner',
     'UEMCP.GraphActions.AssetPlacement',
   ];
   let blueprint;
