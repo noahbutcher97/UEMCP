@@ -319,7 +319,7 @@ export const MENHANCE_SCHEMAS = {
 
   get_rigvm_graph: {
     structuredErrors: true,
-    description: 'Inspect the live Control Rig or RigVM model, including nested graphs, nodes, pin paths, defaults and directed links. Each link uses pin paths within its graph.',
+    description: 'Inspect a live RigVM model using the public asset path, including Control Rig Blueprints and runtime assets with editor data. Returns nested graphs, nodes, pin paths, defaults and directed links within each graph.',
     schema: { asset_path: z.string().min(1).max(512).describe('Exact /Game package name'), max_pins: z.number().int().min(1).max(4096).optional() },
     isReadOp: true,
   },

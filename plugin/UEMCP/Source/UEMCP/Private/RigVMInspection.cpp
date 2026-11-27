@@ -8,6 +8,9 @@
 #include "RigVMModel/RigVMLink.h"
 #include "RigVMModel/RigVMNode.h"
 #include "RigVMModel/RigVMPin.h"
+#if WITH_EDITORONLY_DATA && __has_include("RigVMRuntimeAsset.h")
+#include "RigVMRuntimeAsset.h"
+#endif
 #include "SavedInspectionSource.h"
 
 namespace UEMCP
@@ -26,11 +29,32 @@ namespace UEMCP
 			const FString ObjectPath = Package + TEXT(".") + FPackageName::GetLongPackageAssetName(Package);
 			UObject* Asset = LoadObject<UObject>(nullptr, *ObjectPath, nullptr, LOAD_NoWarn);
 			IRigVMClientHost* Host = Cast<IRigVMClientHost>(Asset);
-			if (!Host || !Host->GetRigVMClient() || !Asset->GetPathName().Equals(ObjectPath, ESearchCase::CaseSensitive))
+			bool bRigAsset = Host != nullptr;
+#if WITH_EDITORONLY_DATA && __has_include("RigVMRuntimeAsset.h")
+			if (!Host)
+			{
+				if (IRigVMRuntimeAssetInterface* RuntimeAsset = Cast<IRigVMRuntimeAssetInterface>(Asset))
+				{
+					bRigAsset = true;
+					UObject* EditorData = RuntimeAsset->GetEditorOnlyData();
+					if (EditorData && EditorData->IsIn(Asset))
+					{
+						Host = Cast<IRigVMClientHost>(EditorData);
+					}
+				}
+			}
+#endif
+			if (!bRigAsset || !Asset->GetPathName().Equals(ObjectPath, ESearchCase::CaseSensitive))
 			{
 				BuildErrorResponse(OutResponse, TEXT("Expected an existing RigVM model asset at the exact path"), TEXT("NOT_RIGVM_ASSET"));
 				return;
 			}
+			const FRigVMClient* Client = Host ? Host->GetRigVMClient() : nullptr;
+			const auto ModelUnavailable = [&OutResponse]()
+			{
+				BuildErrorResponse(OutResponse, TEXT("No live authoring model is available for this RigVM asset. Use read_package_inspection with kind rigvm to inspect supported saved data."), TEXT("RIGVM_EDITOR_MODEL_UNAVAILABLE"));
+			};
+			if (!Client) { ModelUnavailable(); return; }
 
 			int32 MaxPins = 4096;
 			if (Params->HasField(TEXT("max_pins")) && (!Params->TryGetNumberField(TEXT("max_pins"), MaxPins) || MaxPins < 1 || MaxPins > 4096))
@@ -46,7 +70,8 @@ namespace UEMCP
 			int64 TextUnits = 0;
 			TSharedRef<FJsonObject> Result = MakeShared<FJsonObject>();
 			TArray<TSharedPtr<FJsonValue>> Graphs, Issues;
-			const TArray<URigVMGraph*> AllModels = Host->GetRigVMClient()->GetAllModels(true, true);
+			const TArray<URigVMGraph*> AllModels = Client->GetAllModels(true, true);
+			if (AllModels.IsEmpty()) { ModelUnavailable(); return; }
 			if (AllModels.Num() > 128) { TooLarge(); return; }
 			for (URigVMGraph* Graph : AllModels)
 			{

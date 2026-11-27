@@ -1370,7 +1370,7 @@ toolsets:
         offline_fallback_scope: partial
         offline_fallback_note: "Read supported saved RigVM models directly from disk. Unsaved graph edits require the live editor. Existing exported snapshots remain available via read_saved_asset_inspection."
         aliases: ["Control Rig pins and links", "RigVM graph topology"]
-        description: Inspect live RigVM models including nested graphs and local function libraries. Read each model node, pin direction and default, and directed link endpoints. Use read_package_inspection for first-time saved readback.
+        description: Inspect live RigVM models using the public package path of a Control Rig Blueprint or runtime asset with editor data. Read nested graphs, local function libraries, nodes, pin directions and defaults, and directed links. Use read_package_inspection for supported saved data.
         params:
           asset_path: { type: string, required: true }
           max_pins: { type: integer, required: false, description: "Reject models that exceed this pin count (default 4096)." }

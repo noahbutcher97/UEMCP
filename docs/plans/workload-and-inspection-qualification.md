@@ -27,6 +27,14 @@ All four spacing runs used saved positions of 0, 10 and 50 cm. One of three star
 | Live, snapshot and direct inspection, Unit 19 | Live editor getters, explicit clean snapshot export, version-1 snapshot reader and project-bound raw reader | Dirty editor state diverged from saved bytes as expected. Saving invalidated the prior snapshot. A first-time raw read needed no snapshot or running editor and returned the file digest. Reattaching during an in-flight read returned an attachment-change error. |
 | Package boundaries, Units 15–19 | Controlled editor-package flag changes, sidecar and corruption fixtures | Cooked, stripped, unversioned and split inputs were refused. Bounded unknown fields remained partial. Cooker-produced packages, IoStore containers, additional native serializers and older Chooser table layouts need separate fixtures and semantic comparisons before support can be claimed. |
 
+### Live runtime rig inspection
+
+On Win64 UE 5.9 Preview 2 (CL 60738873), the owned fixture reproduced `NOT_RIGVM_ASSET` for a `ControlRigRuntimeAsset` whose editor companion exposed three graphs. The accompanying `ControlRigBlueprint` exposed its graphs directly. After the fix, both public package paths returned three graphs, six nodes, nine pins and one directed link each. Independent Unreal reads matched graph paths, node classes and names, pin paths, types, directions and defaults, and link endpoints.
+
+Codex CLI 0.172.0 recovered from a mistyped asset name by querying the asset registry. It read `Upstream.Result` feeding `Sink.A` on both rigs. It found the unsaved runtime `Sink.B` value of 19.375 and the clean Blueprint value of 7.25. Direct package inspection still read 13.25 from the saved runtime asset, and both package hashes remained stable through the client session. Native automation also exercised a runtime asset without editor data and verified `RIGVM_EDITOR_MODEL_UNAVAILABLE` before initializing the same asset and reading its graphs.
+
+UE 5.8.4 (CL 58902052) also passed the native runtime-asset test for absent and initialized editor data. The fresh-client comparison on saved and unsaved rigs ran on UE 5.9 Preview 2.
+
 ## Independent review and fixes
 
 | Unit | Independent challenge and disposition |
