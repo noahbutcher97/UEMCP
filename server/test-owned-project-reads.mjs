@@ -12,7 +12,7 @@ import { TestRunner, createCanonicalScratchRoot, cleanupCanonicalScratchRoot } f
 const t = new TestRunner('Owned project reads and MCP wire');
 const root = fileURLToPath(new URL('./fixtures/uemcp-fixture/', import.meta.url));
 const hashes = {
-  'UEMCPFixture.uproject': '167fdbaa823a966f23c697f2a0efffb43578bf834ca5eae94a6e8d39e4d17481',
+  'UEMCPFixture.uproject': '8731e48502aac746d9fe575d5f56bea997f7c6f0aa949da3ead907c8bc4f1cc0',
   'Config/DefaultGameplayTags.ini': '11eac0c3272b752e18dbb41de20f0e6a6bb24ce8da50a1ddfd88b899c05c7a89',
   'Config/DefaultEngine.ini': '7c651ad2491cd42d99b6152c15a90917c9477eaedfd2e6ce591f75d6c29c0195',
 };
@@ -20,6 +20,7 @@ const hashes = {
 const plugins = [
   { name: 'AndroidFileServer', enabled: false },
   { name: 'UEMCP', enabled: true },
+  { name: 'Chooser', enabled: true },
   { name: 'RemoteControl', enabled: true },
   { name: 'PythonScriptPlugin', enabled: true },
 ];
